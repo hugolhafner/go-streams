@@ -48,7 +48,7 @@ jobs:
         uses: ./.github/actions/setup
 
       - name: Test with Go
-        run: make test/json
+        run: mise run test-json
 
       - name: Upload Go test results
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
@@ -67,7 +67,7 @@ jobs:
         uses: ./.github/actions/setup
 
       - name: Run Lint
-        run: make lint
+        run: mise run lint
 
   release:
     name: Release

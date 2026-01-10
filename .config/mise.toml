@@ -1,3 +1,15 @@
 [tools]
 go = "1.25.4"
 golangci-lint = "2.7.2"
+
+[tasks.deps]
+run = "go mod tidy && go mod download && go mod verify"
+
+[tasks.lint]
+run = "golangci-lint run ./..."
+
+[tasks.test]
+run = "go test -v ./..."
+
+[tasks.test-json]
+run = "go test -v -json ./... > test-results.json"

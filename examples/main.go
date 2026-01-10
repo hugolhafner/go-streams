@@ -26,6 +26,7 @@ func orderProcessor() {
 
 	parsed := kstream.MapValues(raw, func(v []byte) Order {
 		var o Order
+		//nolint:errcheck
 		json.Unmarshal(v, &o)
 		return o
 	})
