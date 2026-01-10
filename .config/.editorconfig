@@ -1,0 +1,27 @@
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+indent_size = 4
+indent_style = space
+insert_final_newline = true
+max_line_length = 120
+tab_width = 4
+trim_trailing_whitespace = true
+
+[{*.go,*.go2}]
+indent_style = tab
+
+[{*.har,*.jsb2,*.jsb3,*.json,*.jsonc,*.postman_collection,*.postman_collection.json,*.postman_environment,*.postman_environment.json,*.sonarlint/*.json,.babelrc,.eslintrc,.stylelintrc,.ws-context,connectedMode.json,jest.config}]
+indent_size = 2
+
+[{*.yaml,*.yml}]
+indent_size = 2
+
+[{*.toml}]
+indent_size = 2
+
+[{*.md,*.markdown}]
+trim_trailing_whitespace = false
+max_line_length = off

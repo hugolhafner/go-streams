@@ -1,0 +1,17 @@
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: go-streams
+  description: |
+    A go library for building event-driven and stream processing applications. Follows Kafka Streams API design principles.
+    Just because you have to respect Java for its enterprise usage, doesn't mean you have to like it.
+  annotations:
+    github.com/project-slug: hugolhafner/go-streams
+    backstage.io/techdocs-ref: dir:./docs
+    sonarqube.org/project-key: hugolhafner_go-streams
+  tags:
+    - golang
+spec:
+  type: library
+  lifecycle: experimental
+  owner: user:hugolhafner

@@ -1,0 +1,35 @@
+name: "Setup and Cache"
+
+inputs:
+  mise-version:
+    description: "The version of Mise to setup"
+    required: false
+    default: "2025.12.12"
+  make-deps:
+    description: "Whether to run 'make deps' to install dependencies"
+    required: false
+    default: "true"
+
+runs:
+  using: "composite"
+
+  steps:
+    - name: Mise Install
+      uses: jdx/mise-action@146a28175021df8ca24f8ee1828cc2a60f980bd5 # v3.5.1
+      with:
+        version: ${{ inputs.mise-version }}
+
+    - uses: actions/cache@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
+      if: ${{ inputs.make-deps == 'true' }}
+      with:
+        path: |
+          ~/.cache/go-build
+          ~/go/pkg/mod
+        key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+        restore-keys: |
+          ${{ runner.os }}-go-
+
+    - name: Install dependencies
+      shell: bash
+      if: ${{ inputs.make-deps == 'true' }}
+      run: make deps
