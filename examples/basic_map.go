@@ -1,12 +1,12 @@
-package main
+package examples
 
 import (
 	"context"
-	"encoding/json"
 	"log"
 
 	"github.com/hugolhafner/go-streams"
 	"github.com/hugolhafner/go-streams/kstream"
+	"github.com/hugolhafner/go-streams/serde"
 )
 
 type Order struct {
@@ -20,17 +20,9 @@ type OrderSummary struct {
 	Amount  float64 `json:"amount"`
 }
 
-func orderProcessor() {
+func BasicMap() {
 	builder := kstream.NewStreamsBuilder()
-	raw := kstream.Stream[[]byte, []byte](builder, "orders")
-
-	parsed := kstream.MapValues(raw, func(v []byte) Order {
-		var o Order
-		//nolint:errcheck
-		json.Unmarshal(v, &o)
-		return o
-	})
-
+	parsed := kstream.StreamWithValueSerde(builder, "orders", serde.JSON[Order]())
 	valid := kstream.Filter(parsed, func(k []byte, v Order) bool {
 		return v.ID != "" && v.Amount > 0
 	})
@@ -42,16 +34,7 @@ func orderProcessor() {
 		}
 	})
 
-	serialized := kstream.MapValues(summary, func(v OrderSummary) []byte {
-		b, _ := json.Marshal(v)
-		return b
-	})
-
-	output := kstream.MapKeys(serialized, func(k string) []byte {
-		return []byte(k)
-	})
-
-	kstream.To(output, "order-summaries")
+	kstream.ToWithSerde(summary, "order-summaries", serde.String(), serde.JSON[OrderSummary]())
 	t := builder.Build()
 	t.PrintTree()
 

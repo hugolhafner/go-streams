@@ -70,13 +70,8 @@ func (t *Topology) printNode(name, prefix string, visited map[string]bool) {
 		return
 	}
 
-	for i, child := range children {
-		newPrefix := prefix
-		if i == len(children)-1 {
-			newPrefix += "   "
-		} else {
-			newPrefix += "│  "
-		}
+	for _, child := range children {
+		newPrefix := prefix + "  "
 		t.printNode(child, newPrefix, visited)
 	}
 }
