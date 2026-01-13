@@ -2,8 +2,8 @@ package serde
 
 var (
 	_ Serde[[]byte]        = bytesSerde{}
-	_ Serializer[[]byte]   = bytesSerde{}
-	_ Deserializer[[]byte] = bytesSerde{}
+	_ Serialiser[[]byte]   = bytesSerde{}
+	_ Deserialiser[[]byte] = bytesSerde{}
 )
 
 type bytesSerde struct{}
@@ -12,10 +12,10 @@ func Bytes() Serde[[]byte] {
 	return bytesSerde{}
 }
 
-func (s bytesSerde) Serialize(topic string, value []byte) ([]byte, error) {
+func (s bytesSerde) Serialise(topic string, value []byte) ([]byte, error) {
 	return value, nil
 }
 
-func (s bytesSerde) Deserialize(topic string, data []byte) ([]byte, error) {
+func (s bytesSerde) Deserialise(topic string, data []byte) ([]byte, error) {
 	return data, nil
 }

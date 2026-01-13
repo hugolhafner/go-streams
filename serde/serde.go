@@ -1,27 +1,27 @@
 package serde
 
 type Serde[T any] interface {
-	Serializer[T]
-	Deserializer[T]
+	Serialiser[T]
+	Deserialiser[T]
 }
 
-type Serializer[T any] interface {
-	Serialize(topic string, value T) ([]byte, error)
+type Serialiser[T any] interface {
+	Serialise(topic string, value T) ([]byte, error)
 }
 
-type Deserializer[T any] interface {
-	Deserialize(topic string, data []byte) (T, error)
+type Deserialiser[T any] interface {
+	Deserialise(topic string, data []byte) (T, error)
 }
 
-type ErasedDeserializer interface {
+type UntypedDeserialiser interface {
 	Deserialize(topic string, data []byte) (any, error)
 }
 
-type ErasedSerializer interface {
+type UntypedSerialiser interface {
 	Serialize(topic string, value any) ([]byte, error)
 }
 
-type ErasedSerde interface {
-	ErasedSerializer
-	ErasedDeserializer
+type UntypedSerde interface {
+	UntypedSerialiser
+	UntypedDeserialiser
 }

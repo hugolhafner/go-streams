@@ -9,11 +9,11 @@ import (
 func Filter[K, V any](s KStream[K, V], predicate func(K, V) bool) KStream[K, V] {
 	name := s.builder.nextName("FILTER")
 
-	supplier := processor.ToSupplier(func() processor.Processor[K, V, K, V] {
+	var typedSupplier processor.Supplier[K, V, K, V] = func() processor.Processor[K, V, K, V] {
 		return builtins.NewFilterProcessor(predicate)
-	})
+	}
 
-	s.builder.topology.AddProcessor(name, supplier, s.nodeName)
+	s.builder.topology.AddProcessor(name, typedSupplier.ToUntyped(), s.nodeName)
 
 	return KStream[K, V]{
 		builder:  s.builder,

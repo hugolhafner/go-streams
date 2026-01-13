@@ -1,6 +1,7 @@
 package topology
 
 import (
+	"github.com/hugolhafner/go-streams/processor"
 	"github.com/hugolhafner/go-streams/serde"
 )
 
@@ -14,8 +15,8 @@ func NewBuilder() *Builder {
 	}
 }
 
-func (b *Builder) AddSource(name, topic string, keySerde serde.ErasedDeserializer, valueSerde serde.ErasedDeserializer) *Builder {
-	b.topology.nodes[name] = &SourceNodeDef{
+func (b *Builder) AddSource(name, topic string, keySerde serde.UntypedDeserialiser, valueSerde serde.UntypedDeserialiser) *Builder {
+	b.topology.nodes[name] = &sourceNode{
 		name:       name,
 		topic:      topic,
 		keySerde:   keySerde,
@@ -25,8 +26,8 @@ func (b *Builder) AddSource(name, topic string, keySerde serde.ErasedDeserialize
 	return b
 }
 
-func (b *Builder) AddProcessor(name string, supplier ProcessorSupplier, parents ...string) *Builder {
-	b.topology.nodes[name] = &ProcessorNodeDef{
+func (b *Builder) AddProcessor(name string, supplier processor.UntypedSupplier, parents ...string) *Builder {
+	b.topology.nodes[name] = &processorNode{
 		name:     name,
 		supplier: supplier,
 	}
@@ -40,11 +41,11 @@ func (b *Builder) AddProcessor(name string, supplier ProcessorSupplier, parents 
 
 func (b *Builder) AddProcessorWithChildName(
 	name string,
-	supplier ProcessorSupplier,
+	supplier processor.UntypedSupplier,
 	parent string,
 	childName string,
 ) *Builder {
-	b.topology.nodes[name] = &ProcessorNodeDef{
+	b.topology.nodes[name] = &processorNode{
 		name:     name,
 		supplier: supplier,
 	}
@@ -59,9 +60,9 @@ func (b *Builder) AddProcessorWithChildName(
 	return b
 }
 
-func (b *Builder) AddSink(name, topic string, keySerde serde.ErasedSerializer, valueSerde serde.ErasedSerializer,
+func (b *Builder) AddSink(name, topic string, keySerde serde.UntypedSerialiser, valueSerde serde.UntypedSerialiser,
 	parents ...string) *Builder {
-	b.topology.nodes[name] = &SinkNodeDef{
+	b.topology.nodes[name] = &sinkNode{
 		name:       name,
 		topic:      topic,
 		keySerde:   keySerde,
