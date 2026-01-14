@@ -19,7 +19,7 @@ type Record[K, V any] struct {
 	Metadata
 }
 
-type ErasedRecord struct {
+type UntypedRecord struct {
 	Key   any
 	Value any
 	Metadata

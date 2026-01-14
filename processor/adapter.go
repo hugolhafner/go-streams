@@ -1,37 +1,43 @@
 package processor
 
-import (
-	"github.com/hugolhafner/go-streams/record"
-	"github.com/hugolhafner/go-streams/topology"
+import "github.com/hugolhafner/go-streams/record"
+
+var (
+	_ UntypedProcessor  = (*untypedProcessorAdapter[any, any, any, any])(nil)
+	_ Context[any, any] = (*typedContextAdapter[any, any])(nil)
 )
 
-type processorAdapter[KIn, VIn, KOut, VOut any] struct {
+type untypedProcessorAdapter[KIn, VIn, KOut, VOut any] struct {
 	typed Processor[KIn, VIn, KOut, VOut]
-	ctx   *contextAdapter[KOut, VOut]
 }
 
-func (a *processorAdapter[KIn, VIn, KOut, VOut]) Init(ctx topology.ProcessorContext) {
-	a.ctx = &contextAdapter[KOut, VOut]{untyped: ctx}
-	a.typed.Init(a.ctx)
+func (a *untypedProcessorAdapter[KIn, VIn, KOut, VOut]) Init(ctx UntypedContext) {
+	typedCtx := &typedContextAdapter[KOut, VOut]{untyped: ctx}
+	a.typed.Init(typedCtx)
 }
 
-func (a *processorAdapter[KIn, VIn, KOut, VOut]) Process(r any) {
-	typed := r.(*record.Record[KIn, VIn])
+func (a *untypedProcessorAdapter[KIn, VIn, KOut, VOut]) Process(r *record.UntypedRecord) error {
+	typed := &record.Record[KIn, VIn]{
+		Key:      r.Key.(KIn),
+		Value:    r.Value.(VIn),
+		Metadata: r.Metadata,
+	}
 	a.typed.Process(typed)
+	return nil
 }
 
-func (a *processorAdapter[KIn, VIn, KOut, VOut]) Close() error {
+func (a *untypedProcessorAdapter[KIn, VIn, KOut, VOut]) Close() error {
 	return a.typed.Close()
 }
 
-type contextAdapter[K, V any] struct {
-	untyped topology.ProcessorContext
+type typedContextAdapter[K, V any] struct {
+	untyped UntypedContext
 }
 
-func (c *contextAdapter[K, V]) Forward(record *record.Record[K, V]) {
-	c.untyped.Forward(record)
+func (c *typedContextAdapter[K, V]) Forward(r *record.Record[K, V]) {
+	c.untyped.Forward(r.ToUntyped())
 }
 
-func (c *contextAdapter[K, V]) ForwardTo(childName string, record *record.Record[K, V]) {
-	c.untyped.ForwardTo(childName, record)
+func (c *typedContextAdapter[K, V]) ForwardTo(childName string, r *record.Record[K, V]) {
+	c.untyped.ForwardTo(childName, r.ToUntyped())
 }

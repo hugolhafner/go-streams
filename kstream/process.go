@@ -5,16 +5,14 @@ import (
 )
 
 // Process applies a custom processor
-func Process[K1, V1, K2, V2 any](
-	s KStream[K1, V1],
-	supplier func() processor.Processor[K1, V1, K2, V2],
-) KStream[K2, V2] {
+func Process[KIn, VIn, KOut, VOut any](
+	s KStream[KIn, VIn],
+	supplier processor.Supplier[KIn, VIn, KOut, VOut],
+) KStream[KOut, VOut] {
 	name := s.builder.nextName("PROCESS")
+	s.builder.topology.AddProcessor(name, supplier.ToUntyped(), s.nodeName)
 
-	adapted := processor.ToSupplier(supplier)
-	s.builder.topology.AddProcessor(name, adapted, s.nodeName)
-
-	return KStream[K2, V2]{
+	return KStream[KOut, VOut]{
 		builder:  s.builder,
 		nodeName: name,
 	}

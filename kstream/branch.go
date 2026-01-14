@@ -49,11 +49,11 @@ func Branch[K, V any](s KStream[K, V], branches ...BranchConfig[K, V]) BranchOut
 		names[i] = b.Name
 	}
 
-	supplier := processor.ToSupplier(func() processor.Processor[K, V, K, V] {
+	var supplier processor.Supplier[K, V, K, V] = func() processor.Processor[K, V, K, V] {
 		return builtins.NewBranchProcessor(predicates, names)
-	})
+	}
 
-	s.builder.topology.AddProcessor(branchNodeName, supplier, s.nodeName)
+	s.builder.topology.AddProcessor(branchNodeName, supplier.ToUntyped(), s.nodeName)
 
 	output := BranchOutput[K, V]{
 		streams: make(map[string]KStream[K, V], len(branches)),
@@ -61,13 +61,13 @@ func Branch[K, V any](s KStream[K, V], branches ...BranchConfig[K, V]) BranchOut
 
 	for _, b := range branches {
 		passthroughName := s.builder.nextName("BRANCH-" + b.Name)
-		passthroughSupplier := processor.ToSupplier(func() processor.Processor[K, V, K, V] {
+		var passthroughSupplier processor.Supplier[K, V, K, V] = func() processor.Processor[K, V, K, V] {
 			return builtins.NewPassthroughProcessor[K, V]()
-		})
+		}
 
 		s.builder.topology.AddProcessorWithChildName(
 			passthroughName,
-			passthroughSupplier,
+			passthroughSupplier.ToUntyped(),
 			branchNodeName,
 			b.Name,
 		)

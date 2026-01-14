@@ -6,6 +6,7 @@ import (
 
 	"github.com/hugolhafner/go-streams"
 	"github.com/hugolhafner/go-streams/kstream"
+	"github.com/hugolhafner/go-streams/runner"
 	"github.com/hugolhafner/go-streams/serde"
 )
 
@@ -43,7 +44,7 @@ func BasicMap() {
 		streams.WithBootstrapServers([]string{"localhost:9092"}),
 	)
 
-	if err := app.Run(context.Background()); err != nil {
+	if err := app.Run(context.Background(), runner.NewSingleThreadedRunner()); err != nil {
 		log.Fatal(err)
 	}
 }

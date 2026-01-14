@@ -16,25 +16,25 @@ func Stream(b *StreamsBuilder, topic string) KStream[[]byte, []byte] {
 }
 
 func StreamWithKeySerde[K any](
-	b *StreamsBuilder, topic string, keySerde serde.Deserializer[K],
+	b *StreamsBuilder, topic string, keySerde serde.Deserialiser[K],
 ) KStream[K, []byte] {
 	return StreamWithSerde(b, topic, keySerde, serde.Bytes())
 }
 
 func StreamWithValueSerde[V any](
-	b *StreamsBuilder, topic string, valueSerde serde.Deserializer[V],
+	b *StreamsBuilder, topic string, valueSerde serde.Deserialiser[V],
 ) KStream[[]byte, V] {
 	return StreamWithSerde(b, topic, serde.Bytes(), valueSerde)
 }
 
 // StreamWithSerde creates a KStream from a Kafka topic with specified serdes
 func StreamWithSerde[K, V any](
-	b *StreamsBuilder, topic string, keySerde serde.Deserializer[K],
-	valueSerde serde.Deserializer[V],
+	b *StreamsBuilder, topic string, keySerde serde.Deserialiser[K],
+	valueSerde serde.Deserialiser[V],
 ) KStream[K, V] {
 	name := b.nextName("SOURCE")
-	ks := serde.ToDeserializer(keySerde)
-	vs := serde.ToDeserializer(valueSerde)
+	ks := serde.ToUntypedDeserialser(keySerde)
+	vs := serde.ToUntypedDeserialser(valueSerde)
 
 	b.topology.AddSource(name, topic, ks, vs)
 

@@ -22,6 +22,11 @@ func NewTopology() *Topology {
 	}
 }
 
+func (t *Topology) GetNode(name string) (Node, bool) {
+	node, exists := t.nodes[name]
+	return node, exists
+}
+
 func (t *Topology) Nodes() map[string]Node {
 	return t.nodes
 }
@@ -41,8 +46,39 @@ func (t *Topology) Sources() []string {
 	return t.sources
 }
 
+func (t *Topology) SourceNodes() []*sourceNode {
+	var sourceNodes []*sourceNode
+	for _, sourceName := range t.Sources() {
+		node, exists := t.GetNode(sourceName)
+
+		if !exists {
+			continue
+		}
+
+		if sn, ok := node.(*sourceNode); ok {
+			sourceNodes = append(sourceNodes, sn)
+		}
+	}
+	return sourceNodes
+}
+
 func (t *Topology) Sinks() []string {
 	return t.sinks
+}
+
+func (t *Topology) SinkNodes() []Node {
+	var sinkNodes []Node
+	for _, sinkName := range t.Sinks() {
+		node, exists := t.GetNode(sinkName)
+		if !exists {
+			continue
+		}
+
+		if sn, ok := node.(*sinkNode); ok {
+			sinkNodes = append(sinkNodes, sn)
+		}
+	}
+	return sinkNodes
 }
 
 func (t *Topology) PrintTree() {

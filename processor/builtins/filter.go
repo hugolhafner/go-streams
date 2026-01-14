@@ -27,6 +27,5 @@ func (p *FilterProcessor[K, V]) Process(r *record.Record[K, V]) {
 }
 
 func (p *FilterProcessor[K, V]) Close() error {
-	// TODO implement me
-	panic("implement me")
+	return nil
 }

@@ -24,6 +24,5 @@ func (p *PassthroughProcessor[K, V]) Process(r *record.Record[K, V]) {
 }
 
 func (p *PassthroughProcessor[K, V]) Close() error {
-	// TODO implement me
-	panic("implement me")
+	return nil
 }

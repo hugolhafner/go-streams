@@ -24,8 +24,8 @@ func ToWithValueSerde[V any](s KStream[[]byte, V], topic string, valueSerde serd
 // terminal operation
 func ToWithSerde[K, V any](s KStream[K, V], topic string, keySerde serde.Serde[K], valueSerde serde.Serde[V]) {
 	name := s.builder.nextName("SINK")
-	ks := serde.ToSerializer(keySerde)
-	vs := serde.ToSerializer(valueSerde)
+	ks := serde.ToUntypedSerialiser(keySerde)
+	vs := serde.ToUntypedSerialiser(valueSerde)
 
 	s.builder.topology.AddSink(name, topic, ks, vs, s.nodeName)
 }
@@ -35,9 +35,9 @@ func ToWithSerde[K, V any](s KStream[K, V], topic string, keySerde serde.Serde[K
 func ForEach[K, V any](s KStream[K, V], action func(K, V)) {
 	name := s.builder.nextName("FOREACH")
 
-	supplier := processor.ToSupplier(func() processor.Processor[K, V, K, V] {
+	var supplier processor.Supplier[K, V, K, V] = func() processor.Processor[K, V, K, V] {
 		return builtins.NewForEachProcessor(action)
-	})
+	}
 
-	s.builder.topology.AddProcessor(name, supplier, s.nodeName)
+	s.builder.topology.AddProcessor(name, supplier.ToUntyped(), s.nodeName)
 }

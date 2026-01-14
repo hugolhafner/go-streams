@@ -3,15 +3,15 @@ package serde
 import "fmt"
 
 type deserializerAdapter[T any] struct {
-	typed Deserializer[T]
+	typed Deserialiser[T]
 }
 
 func (a deserializerAdapter[T]) Deserialize(topic string, data []byte) (any, error) {
-	return a.typed.Deserialize(topic, data)
+	return a.typed.Deserialise(topic, data)
 }
 
 type serializerAdapter[T any] struct {
-	typed Serializer[T]
+	typed Serialiser[T]
 }
 
 func (a serializerAdapter[T]) Serialize(topic string, value any) ([]byte, error) {
@@ -19,7 +19,7 @@ func (a serializerAdapter[T]) Serialize(topic string, value any) ([]byte, error)
 	if !ok {
 		return nil, fmt.Errorf("serde: expected %T, got %T", *new(T), value)
 	}
-	return a.typed.Serialize(topic, typed)
+	return a.typed.Serialise(topic, typed)
 }
 
 type serdeAdapter[T any] struct {
@@ -27,7 +27,7 @@ type serdeAdapter[T any] struct {
 }
 
 func (a serdeAdapter[T]) Deserialize(topic string, data []byte) (any, error) {
-	return a.typed.Deserialize(topic, data)
+	return a.typed.Deserialise(topic, data)
 }
 
 func (a serdeAdapter[T]) Serialize(topic string, value any) ([]byte, error) {
@@ -35,5 +35,5 @@ func (a serdeAdapter[T]) Serialize(topic string, value any) ([]byte, error) {
 	if !ok {
 		return nil, fmt.Errorf("serde: expected %T, got %T", *new(T), value)
 	}
-	return a.typed.Serialize(topic, typed)
+	return a.typed.Serialise(topic, typed)
 }

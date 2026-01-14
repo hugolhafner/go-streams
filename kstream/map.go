@@ -6,40 +6,40 @@ import (
 )
 
 // Map transforms each record's key and value
-func Map[K1, V1, K2, V2 any](
-	s KStream[K1, V1],
-	mapper func(K1, V1) (K2, V2),
-) KStream[K2, V2] {
+func Map[KIn, VIn, KOut, VOut any](
+	s KStream[KIn, VIn],
+	mapper func(KIn, VIn) (KOut, VOut),
+) KStream[KOut, VOut] {
 	name := s.builder.nextName("MAP")
 
-	supplier := processor.ToSupplier(func() processor.Processor[K1, V1, K2, V2] {
+	var supplier processor.Supplier[KIn, VIn, KOut, VOut] = func() processor.Processor[KIn, VIn, KOut, VOut] {
 		return builtins.NewMapProcessor(mapper)
-	})
+	}
 
-	s.builder.topology.AddProcessor(name, supplier, s.nodeName)
+	s.builder.topology.AddProcessor(name, supplier.ToUntyped(), s.nodeName)
 
-	return KStream[K2, V2]{
+	return KStream[KOut, VOut]{
 		builder:  s.builder,
 		nodeName: name,
 	}
 }
 
 // MapValues transforms each record's value, keeping the key unchanged
-func MapValues[K, V1, V2 any](
-	s KStream[K, V1],
-	mapper func(V1) V2,
-) KStream[K, V2] {
-	return Map(s, func(k K, v V1) (K, V2) {
+func MapValues[K, VIn, VOut any](
+	s KStream[K, VIn],
+	mapper func(VIn) VOut,
+) KStream[K, VOut] {
+	return Map(s, func(k K, v VIn) (K, VOut) {
 		return k, mapper(v)
 	})
 }
 
 // MapKeys transforms each record's key, keeping the value unchanged
-func MapKeys[K1, K2, V any](
-	s KStream[K1, V],
-	mapper func(K1) K2,
-) KStream[K2, V] {
-	return Map(s, func(k K1, v V) (K2, V) {
+func MapKeys[KIn, KOut, V any](
+	s KStream[KIn, V],
+	mapper func(KIn) KOut,
+) KStream[KOut, V] {
+	return Map(s, func(k KIn, v V) (KOut, V) {
 		return mapper(k), v
 	})
 }

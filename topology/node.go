@@ -1,6 +1,7 @@
 package topology
 
 import (
+	"github.com/hugolhafner/go-streams/processor"
 	"github.com/hugolhafner/go-streams/serde"
 )
 
@@ -32,70 +33,81 @@ type Node interface {
 }
 
 var (
-	_ Node = (*SourceNodeDef)(nil)
-	_ Node = (*ProcessorNodeDef)(nil)
-	_ Node = (*SinkNodeDef)(nil)
+	_ Node          = (*sourceNode)(nil)
+	_ SourceNode    = (*sourceNode)(nil)
+	_ Node          = (*processorNode)(nil)
+	_ ProcessorNode = (*processorNode)(nil)
+	_ Node          = (*sinkNode)(nil)
+	_ SinkNode      = (*sinkNode)(nil)
 )
 
-type SourceNodeDef struct {
+type sourceNode struct {
 	name       string
 	topic      string
-	keySerde   serde.ErasedDeserializer
-	valueSerde serde.ErasedDeserializer
+	keySerde   serde.UntypedDeserialiser
+	valueSerde serde.UntypedDeserialiser
 }
 
-func (s *SourceNodeDef) Name() string {
+func (s *sourceNode) Name() string {
 	return s.name
 }
 
-func (s *SourceNodeDef) Type() NodeType {
+func (s *sourceNode) Type() NodeType {
 	return NodeTypeSource
 }
 
-func (s *SourceNodeDef) Topic() string {
+func (s *sourceNode) Topic() string {
 	return s.topic
 }
 
-func (s *SourceNodeDef) KeySerde() serde.ErasedDeserializer {
+func (s *sourceNode) KeySerde() serde.UntypedDeserialiser {
 	return s.keySerde
 }
 
-func (s *SourceNodeDef) ValueSerde() serde.ErasedDeserializer {
+func (s *sourceNode) ValueSerde() serde.UntypedDeserialiser {
 	return s.valueSerde
 }
 
-type ProcessorNodeDef struct {
+type processorNode struct {
 	name     string
-	supplier ProcessorSupplier
+	supplier processor.UntypedSupplier
 }
 
-func (p *ProcessorNodeDef) Name() string {
+func (p *processorNode) Name() string {
 	return p.name
 }
 
-func (p *ProcessorNodeDef) Type() NodeType {
+func (p *processorNode) Type() NodeType {
 	return NodeTypeProcessor
 }
 
-type SinkNodeDef struct {
-	name       string
-	topic      string
-	keySerde   serde.ErasedSerializer
-	valueSerde serde.ErasedSerializer
+func (p *processorNode) Supplier() processor.UntypedSupplier {
+	return p.supplier
 }
 
-func (s *SinkNodeDef) Name() string {
+type sinkNode struct {
+	name       string
+	topic      string
+	keySerde   serde.UntypedSerialiser
+	valueSerde serde.UntypedSerialiser
+}
+
+func (s *sinkNode) Name() string {
 	return s.name
 }
 
-func (s *SinkNodeDef) Type() NodeType {
+func (s *sinkNode) Type() NodeType {
 	return NodeTypeSink
 }
 
-func (s *SinkNodeDef) KeySerde() serde.ErasedSerializer {
+func (s *sinkNode) Topic() string {
+	return s.topic
+}
+
+func (s *sinkNode) KeySerde() serde.UntypedSerialiser {
 	return s.keySerde
 }
 
-func (s *SinkNodeDef) ValueSerde() serde.ErasedSerializer {
+func (s *sinkNode) ValueSerde() serde.UntypedSerialiser {
 	return s.valueSerde
 }
