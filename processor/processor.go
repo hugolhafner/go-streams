@@ -17,11 +17,11 @@ type UntypedProcessor interface {
 }
 
 type UntypedContext interface {
-	Forward(record *record.UntypedRecord)
-	ForwardTo(childName string, record *record.UntypedRecord)
+	Forward(record *record.UntypedRecord) error
+	ForwardTo(childName string, record *record.UntypedRecord) error
 }
 
 type Context[K, V any] interface {
-	Forward(record *record.Record[K, V])
-	ForwardTo(childName string, record *record.Record[K, V])
+	Forward(record *record.Record[K, V]) error
+	ForwardTo(childName string, record *record.Record[K, V]) error
 }

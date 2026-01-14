@@ -31,6 +31,18 @@ func (t *Topology) Nodes() map[string]Node {
 	return t.nodes
 }
 
+func (t *Topology) NamedEdges(parent string) map[string]string {
+	if named, ok := t.namedEdges[parent]; ok {
+		result := make(map[string]string, len(named))
+		for k, v := range named {
+			result[k] = v
+		}
+		return result
+	}
+	
+	return nil
+}
+
 func (t *Topology) Children(parent string) []string {
 	return t.edges[parent]
 }

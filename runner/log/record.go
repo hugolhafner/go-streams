@@ -1,10 +1,17 @@
 package log
 
-type ConsumerRecord struct {
-	Key []byte
+import (
+	"time"
+)
 
+type ConsumerRecord struct {
+	Key       []byte
+	Value     []byte
+	Headers   map[string][]byte
 	Topic     string
 	Partition int32
+	Offset    int64
+	Timestamp time.Time
 }
 
 func (r ConsumerRecord) TopicPartition() TopicPartition {

@@ -34,10 +34,10 @@ type typedContextAdapter[K, V any] struct {
 	untyped UntypedContext
 }
 
-func (c *typedContextAdapter[K, V]) Forward(r *record.Record[K, V]) {
-	c.untyped.Forward(r.ToUntyped())
+func (c *typedContextAdapter[K, V]) Forward(r *record.Record[K, V]) error {
+	return c.untyped.Forward(r.ToUntyped())
 }
 
-func (c *typedContextAdapter[K, V]) ForwardTo(childName string, r *record.Record[K, V]) {
-	c.untyped.ForwardTo(childName, r.ToUntyped())
+func (c *typedContextAdapter[K, V]) ForwardTo(childName string, r *record.Record[K, V]) error {
+	return c.untyped.ForwardTo(childName, r.ToUntyped())
 }

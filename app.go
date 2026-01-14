@@ -58,7 +58,10 @@ func (a *Application) RunWith(ctx context.Context, factory runner.Factory) error
 	}
 	defer a.Close()
 
-	taskFactory := task.NewTopologyTaskFactory(a.topology)
+	taskFactory, err := task.NewTopologyTaskFactory(a.topology)
+	if err != nil {
+		return fmt.Errorf("failed to create task factory: %w", err)
+	}
 
 	r, err := factory(a.topology, taskFactory, a.client, a.client)
 	if err != nil {

@@ -1,9 +1,13 @@
 package examples
 
 import (
+	"context"
 	"encoding/json"
 
+	"github.com/hugolhafner/go-streams"
 	"github.com/hugolhafner/go-streams/kstream"
+	"github.com/hugolhafner/go-streams/runner"
+	"github.com/hugolhafner/go-streams/runner/log"
 	"github.com/hugolhafner/go-streams/serde"
 )
 
@@ -79,4 +83,18 @@ func EventSourcing() {
 
 	t := builder.Build()
 	t.PrintTree()
+
+	app, err := streams.NewApplication(
+		log.NewKgoClient(),
+		builder.Build(),
+		streams.WithApplicationID("example-order-processor"),
+		streams.WithBootstrapServers([]string{"localhost:9092"}),
+	)
+	if err != nil {
+		panic(err)
+	}
+
+	if err := app.RunWith(context.Background(), runner.NewSingleThreadedRunner()); err != nil {
+		panic(err)
+	}
 }
