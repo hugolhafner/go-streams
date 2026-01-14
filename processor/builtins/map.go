@@ -25,10 +25,9 @@ func (p *MapProcessor[KIn, VIn, KOut, VOut]) Init(ctx processor.Context[KOut, VO
 func (p *MapProcessor[KIn, VIn, KOut, VOut]) Process(r *record.Record[KIn, VIn]) {
 	newK, newV := p.mapper(r.Key, r.Value)
 	p.ctx.Forward(&record.Record[KOut, VOut]{
-		Key:       newK,
-		Value:     newV,
-		Timestamp: r.Timestamp,
-		Headers:   r.Headers,
+		Key:      newK,
+		Value:    newV,
+		Metadata: r.Metadata,
 	})
 }
 

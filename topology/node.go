@@ -1,5 +1,9 @@
 package topology
 
+import (
+	"github.com/hugolhafner/go-streams/serde"
+)
+
 type NodeType int
 
 const (
@@ -28,46 +32,70 @@ type Node interface {
 }
 
 var (
-	_ Node = (*sourceNodeDef)(nil)
-	_ Node = (*processorNodeDef)(nil)
-	_ Node = (*sinkNodeDef)(nil)
+	_ Node = (*SourceNodeDef)(nil)
+	_ Node = (*ProcessorNodeDef)(nil)
+	_ Node = (*SinkNodeDef)(nil)
 )
 
-type sourceNodeDef struct {
-	name  string
-	topic string
+type SourceNodeDef struct {
+	name       string
+	topic      string
+	keySerde   serde.ErasedDeserializer
+	valueSerde serde.ErasedDeserializer
 }
 
-func (s *sourceNodeDef) Name() string {
+func (s *SourceNodeDef) Name() string {
 	return s.name
 }
 
-func (s *sourceNodeDef) Type() NodeType {
+func (s *SourceNodeDef) Type() NodeType {
 	return NodeTypeSource
 }
 
-type processorNodeDef struct {
+func (s *SourceNodeDef) Topic() string {
+	return s.topic
+}
+
+func (s *SourceNodeDef) KeySerde() serde.ErasedDeserializer {
+	return s.keySerde
+}
+
+func (s *SourceNodeDef) ValueSerde() serde.ErasedDeserializer {
+	return s.valueSerde
+}
+
+type ProcessorNodeDef struct {
 	name     string
 	supplier ProcessorSupplier
 }
 
-func (p *processorNodeDef) Name() string {
+func (p *ProcessorNodeDef) Name() string {
 	return p.name
 }
 
-func (p *processorNodeDef) Type() NodeType {
+func (p *ProcessorNodeDef) Type() NodeType {
 	return NodeTypeProcessor
 }
 
-type sinkNodeDef struct {
-	name  string
-	topic string
+type SinkNodeDef struct {
+	name       string
+	topic      string
+	keySerde   serde.ErasedSerializer
+	valueSerde serde.ErasedSerializer
 }
 
-func (s *sinkNodeDef) Name() string {
+func (s *SinkNodeDef) Name() string {
 	return s.name
 }
 
-func (s *sinkNodeDef) Type() NodeType {
+func (s *SinkNodeDef) Type() NodeType {
 	return NodeTypeSink
+}
+
+func (s *SinkNodeDef) KeySerde() serde.ErasedSerializer {
+	return s.keySerde
+}
+
+func (s *SinkNodeDef) ValueSerde() serde.ErasedSerializer {
+	return s.valueSerde
 }
