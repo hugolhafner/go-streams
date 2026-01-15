@@ -74,6 +74,8 @@ func NewKgoClient(opts ...KgoOption) (*KgoClient, error) {
 		// TODO: Config this
 		kgo.WithLogger(kzap.New(zap.L())),
 		// TODO: Metrics support
+		// TODO: Support for block rebalance on poll
+		// kgo.BlockRebalanceOnPoll(),
 	}
 
 	client, err := kgo.NewClient(kgoOpts...)
@@ -96,7 +98,11 @@ func (k *KgoClient) onAssigned(ctx context.Context, c *kgo.Client, assigned map[
 	}
 
 	partitions := mapToTopicPartitions(assigned)
-	cb.OnAssigned(partitions)
+	err := cb.OnAssigned(partitions)
+	if err != nil {
+		// TODO: Proper error handling
+		fmt.Println("Error in OnAssigned callback:", err)
+	}
 }
 
 func (k *KgoClient) onRevoked(ctx context.Context, c *kgo.Client, revoked map[string][]int32) {
@@ -109,7 +115,10 @@ func (k *KgoClient) onRevoked(ctx context.Context, c *kgo.Client, revoked map[st
 	}
 
 	partitions := mapToTopicPartitions(revoked)
-	cb.OnRevoked(partitions)
+	err := cb.OnRevoked(partitions)
+	if err != nil {
+		fmt.Println("Error in OnRevoked callback:", err)
+	}
 }
 
 func (k *KgoClient) Subscribe(topics []string, rebalanceCb RebalanceCallback) error {
@@ -201,9 +210,8 @@ func (k *KgoClient) Ping(ctx context.Context) error {
 	return k.client.Ping(ctx)
 }
 
-func (k *KgoClient) Close() error {
+func (k *KgoClient) Close() {
 	k.client.Close()
-	return nil
 }
 
 func convertRecords(records []*kgo.Record) []ConsumerRecord {

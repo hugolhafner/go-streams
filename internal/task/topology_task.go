@@ -102,7 +102,7 @@ func (t *TopologyTask) init() (*TopologyTask, error) {
 		}
 	}
 
-	for name, _ := range t.topology.Nodes() {
+	for name := range t.topology.Nodes() {
 		children := t.topology.Children(name)
 		namedEdges := t.topology.NamedEdges(name)
 		t.contexts[name] = &nodeContext{

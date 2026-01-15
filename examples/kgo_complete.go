@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"os/signal"
+	"syscall"
 
 	"github.com/hugolhafner/go-streams"
 	"github.com/hugolhafner/go-streams/internal/kafka"
@@ -73,7 +74,7 @@ func KgoComplete() {
 
 	go func() {
 		ch := make(chan os.Signal, 1)
-		signal.Notify(ch, os.Interrupt, os.Kill)
+		signal.Notify(ch, os.Interrupt, syscall.SIGTERM, syscall.SIGINT, syscall.SIGQUIT)
 		<-ch
 		l.Info("Received termination signal, shutting down...")
 		app.Close()

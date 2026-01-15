@@ -91,10 +91,10 @@ func (a *Application) Close() {
 		a.mu.Lock()
 		defer a.mu.Unlock()
 
-		if a.running && a.runner != nil {
-			// TODO: Close runner
-			// a.runner.Close()
-		}
+		// TODO: Close runner
+		// if a.running && a.runner != nil {
+		// a.runner.Close()
+		// }
 
 		a.running = false
 		close(a.closedCh)
