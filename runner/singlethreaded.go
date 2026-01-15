@@ -26,7 +26,7 @@ type SingleThreaded struct {
 func NewSingleThreadedRunner(
 	opts ...SingleThreadedOption,
 ) Factory {
-	config := SingleThreadedConfig{}
+	config := defaultSingleThreadedConfig()
 	for _, opt := range opts {
 		opt(&config)
 	}
@@ -37,7 +37,7 @@ func NewSingleThreadedRunner(
 			producer:    producer,
 			taskManager: task.NewManager(f, producer),
 			topology:    t,
-			config:      config,
+			committer:   config.CommitterFactory(),
 		}, nil
 	}
 }
@@ -58,6 +58,7 @@ func (r *SingleThreaded) shutdown() error {
 
 func (r *SingleThreaded) commitOffsets() error {
 	offsets := r.taskManager.GetCommitOffsets()
+	fmt.Println(offsets)
 	if len(offsets) == 0 {
 		return nil
 	}
@@ -92,10 +93,12 @@ func (r *SingleThreaded) Run(ctx context.Context) error {
 		for _, record := range records {
 			t, ok := r.taskManager.TaskFor(record.TopicPartition())
 			if !ok {
+				fmt.Println("no task for topic partition", record.TopicPartition())
 				// TODO: Is this safe?
 				continue
 			}
 
+			fmt.Println("Processing record from topic partition", record.TopicPartition())
 			if err := t.Process(record); err != nil {
 				// TODO: Error handling strategy
 				return fmt.Errorf("failed to process record: %w", err)
@@ -104,6 +107,7 @@ func (r *SingleThreaded) Run(ctx context.Context) error {
 
 		r.committer.RecordProcessed(len(records))
 		if locked := r.committer.TryCommit(); locked {
+			fmt.Println("committing offsets")
 			if err := r.commitOffsets(); err != nil {
 				r.committer.UnlockCommit(false)
 				return fmt.Errorf("failed to commit offsets: %w", err)

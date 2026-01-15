@@ -22,6 +22,7 @@ type Application struct {
 	config   Config
 
 	client log.Client
+	logger Logger
 
 	mu        sync.Mutex
 	running   bool
@@ -44,6 +45,7 @@ func NewApplicationWithConfig(client log.Client, topology *topology.Topology, co
 		topology: topology,
 		config:   config,
 		client:   client,
+		logger:   config.Logger,
 		closedCh: make(chan struct{}),
 	}, nil
 }

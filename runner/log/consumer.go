@@ -9,7 +9,7 @@ import (
 type Consumer interface {
 	Subscribe(topics []string, rebalanceCb RebalanceCallback) error
 	Poll(ctx context.Context, timeout time.Duration) ([]ConsumerRecord, error)
-	Commit(offsets map[TopicPartition]int64) error
+	Commit(offsets map[TopicPartition]Offset) error
 	Close() error
 }
 

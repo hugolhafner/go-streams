@@ -16,10 +16,13 @@ func main() {
 		examples.BranchProcessor()
 	case "event_sourcing":
 		examples.EventSourcing()
+	case "kgo_complete":
+		examples.KgoComplete()
 	default:
 		println("Please provide a valid example name:")
 		println("  basic_map")
 		println("  branching")
 		println("  event_sourcing")
+		println("  kgo_complete")
 	}
 }

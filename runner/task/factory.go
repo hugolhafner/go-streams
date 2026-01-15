@@ -4,7 +4,6 @@ import (
 	"fmt"
 
 	"github.com/hugolhafner/go-streams/processor"
-	"github.com/hugolhafner/go-streams/runner/committer"
 	"github.com/hugolhafner/go-streams/runner/log"
 	"github.com/hugolhafner/go-streams/topology"
 )
@@ -16,23 +15,17 @@ type Factory interface {
 var _ Factory = (*topologyTaskFactory)(nil)
 
 type topologyTaskFactory struct {
-	topology         *topology.Topology
-	sourceByTopic    map[string]topology.SourceNode
-	committerFactory func() committer.Committer
+	topology      *topology.Topology
+	sourceByTopic map[string]topology.SourceNode
 }
 
 type FactoryOption func(*topologyTaskFactory)
-
-func WithCommitterFactory(f func() committer.Committer) FactoryOption {
-	return func(tf *topologyTaskFactory) {
-		tf.committerFactory = f
-	}
-}
 
 func NewTopologyTaskFactory(t *topology.Topology, opts ...FactoryOption) (Factory, error) {
 	sourceByTopic := make(map[string]topology.SourceNode)
 	for _, sn := range t.SourceNodes() {
 		topic := sn.Topic()
+		fmt.Println("Registering source topic:", topic)
 		if _, exists := sourceByTopic[topic]; exists {
 			return nil, fmt.Errorf("duplicate source topic: %s", topic)
 		}
@@ -46,9 +39,6 @@ func NewTopologyTaskFactory(t *topology.Topology, opts ...FactoryOption) (Factor
 	factory := &topologyTaskFactory{
 		topology:      t,
 		sourceByTopic: sourceByTopic,
-		committerFactory: func() committer.Committer {
-			return committer.NewPeriodicCommitter()
-		},
 	}
 
 	for _, opt := range opts {
@@ -65,14 +55,14 @@ func (f *topologyTaskFactory) CreateTask(partition log.TopicPartition, producer 
 	}
 
 	task := &TopologyTask{
+		topology:   f.topology,
 		partition:  partition,
 		source:     source,
 		producer:   producer,
 		contexts:   make(map[string]*nodeContext),
 		sinks:      make(map[string]*sinkHandler),
 		processors: make(map[string]processor.UntypedProcessor),
-		committer:  f.committerFactory(),
-		offset:     -1,
+		offset:     log.Offset{Offset: -1, LeaderEpoch: -1},
 	}
 
 	return task.init()

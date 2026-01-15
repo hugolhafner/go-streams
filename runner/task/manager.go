@@ -11,7 +11,7 @@ type Manager interface {
 	Tasks() map[log.TopicPartition]Task
 	TaskFor(partition log.TopicPartition) (Task, bool)
 
-	GetCommitOffsets() map[log.TopicPartition]int64
+	GetCommitOffsets() map[log.TopicPartition]log.Offset
 
 	Close() error
 }

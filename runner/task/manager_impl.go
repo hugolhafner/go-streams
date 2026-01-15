@@ -21,6 +21,8 @@ func (m *managerImpl) OnAssigned(partitions []log.TopicPartition) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	fmt.Println(partitions)
+
 	for _, p := range partitions {
 		if _, exists := m.tasks[p]; exists {
 			continue
@@ -39,6 +41,8 @@ func (m *managerImpl) OnAssigned(partitions []log.TopicPartition) error {
 
 		m.tasks[p] = task
 	}
+
+	fmt.Println(m.tasks)
 
 	return nil
 }
@@ -83,11 +87,11 @@ func (m *managerImpl) TaskFor(partition log.TopicPartition) (Task, bool) {
 	return task, exists
 }
 
-func (m *managerImpl) GetCommitOffsets() map[log.TopicPartition]int64 {
+func (m *managerImpl) GetCommitOffsets() map[log.TopicPartition]log.Offset {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	offsets := make(map[log.TopicPartition]int64)
+	offsets := make(map[log.TopicPartition]log.Offset)
 	for p, task := range m.tasks {
 		offsets[p] = task.CurrentOffset()
 	}

@@ -9,18 +9,18 @@ import (
 
 // StreamsBuilder is the entry point for building stream topologies
 type StreamsBuilder struct {
-	topology *topology.Builder
+	topology *topology.Topology
 	counter  atomic.Uint64
 }
 
 func NewStreamsBuilder() *StreamsBuilder {
 	return &StreamsBuilder{
-		topology: topology.NewBuilder(),
+		topology: topology.New(),
 	}
 }
 
 func (b *StreamsBuilder) Build() *topology.Topology {
-	return b.topology.Build()
+	return b.topology
 }
 
 func (b *StreamsBuilder) nextName(prefix string) string {

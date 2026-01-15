@@ -5,7 +5,6 @@ import (
 
 	"github.com/hugolhafner/go-streams/processor"
 	"github.com/hugolhafner/go-streams/record"
-	"github.com/hugolhafner/go-streams/runner/committer"
 	"github.com/hugolhafner/go-streams/runner/log"
 	"github.com/hugolhafner/go-streams/topology"
 )
@@ -19,8 +18,7 @@ type TopologyTask struct {
 	contexts   map[string]*nodeContext
 	sinks      map[string]*sinkHandler
 	producer   log.Producer
-	offset     int64
-	committer  committer.Committer
+	offset     log.Offset
 	topology   *topology.Topology
 }
 
@@ -28,12 +26,8 @@ func (t *TopologyTask) Partition() log.TopicPartition {
 	return t.partition
 }
 
-func (t *TopologyTask) CurrentOffset() int64 {
+func (t *TopologyTask) CurrentOffset() log.Offset {
 	return t.offset
-}
-
-func (t *TopologyTask) Committer() committer.Committer {
-	return t.committer
 }
 
 func (t *TopologyTask) Process(rec log.ConsumerRecord) error {
@@ -47,6 +41,10 @@ func (t *TopologyTask) Process(rec log.ConsumerRecord) error {
 		return fmt.Errorf("deserialize value: %w", err)
 	}
 
+	fmt.Println("TopologyTask processing record from topic:", rec.Topic, "partition:", rec.Partition, "offset:",
+		rec.Offset)
+	fmt.Println(string(rec.Value))
+
 	untypedRec := record.NewUntyped(key, value, record.Metadata{
 		Topic:     rec.Topic,
 		Partition: rec.Partition,
@@ -57,23 +55,29 @@ func (t *TopologyTask) Process(rec log.ConsumerRecord) error {
 
 	children := t.topology.Children(t.source.Name())
 	for _, childName := range children {
+		fmt.Println("Processing child node:", childName)
 		if err := t.processAt(childName, untypedRec); err != nil {
 			return err
 		}
 	}
 
-	// Update offset (commit offset is next offset to read)
-	t.offset = rec.Offset + 1
+	t.offset = log.Offset{
+		Offset:      rec.Offset + 1,
+		LeaderEpoch: rec.LeaderEpoch,
+	}
 
 	return nil
 }
 
 func (t *TopologyTask) processAt(nodeName string, rec *record.UntypedRecord) error {
+	fmt.Println("Processing at node:", nodeName)
 	if sink, ok := t.sinks[nodeName]; ok {
+		fmt.Println("Processing sink node:", nodeName)
 		return sink.Process(rec)
 	}
 
 	proc, ok := t.processors[nodeName]
+	fmt.Println("Processing processor node:", nodeName)
 	if !ok {
 		return fmt.Errorf("unknown node: %s", nodeName)
 	}
@@ -98,11 +102,10 @@ func (t *TopologyTask) init() (*TopologyTask, error) {
 		}
 	}
 
-	contexts := make(map[string]*nodeContext)
 	for name, _ := range t.topology.Nodes() {
 		children := t.topology.Children(name)
 		namedEdges := t.topology.NamedEdges(name)
-		contexts[name] = &nodeContext{
+		t.contexts[name] = &nodeContext{
 			task:       t,
 			nodeName:   name,
 			children:   children,
@@ -110,10 +113,9 @@ func (t *TopologyTask) init() (*TopologyTask, error) {
 		}
 	}
 
-	sinks := make(map[string]*sinkHandler)
 	for name, node := range t.topology.Nodes() {
 		if sn, ok := node.(topology.SinkNode); ok {
-			sinks[name] = &sinkHandler{
+			t.sinks[name] = &sinkHandler{
 				node:     sn,
 				producer: t.producer,
 			}
@@ -121,7 +123,7 @@ func (t *TopologyTask) init() (*TopologyTask, error) {
 	}
 
 	for name, proc := range t.processors {
-		proc.Init(contexts[name])
+		proc.Init(t.contexts[name])
 	}
 
 	return t, nil

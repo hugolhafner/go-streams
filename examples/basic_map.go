@@ -39,8 +39,13 @@ func BasicMap() {
 	t := builder.Build()
 	t.PrintTree()
 
+	client, err := log.NewKgoClient()
+	if err != nil {
+		panic(err)
+	}
+
 	app, err := streams.NewApplication(
-		log.NewKgoClient(),
+		client,
 		builder.Build(),
 		streams.WithApplicationID("example-order-processor"),
 		streams.WithBootstrapServers([]string{"localhost:9092"}),

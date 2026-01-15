@@ -1,7 +1,6 @@
 package task
 
 import (
-	"github.com/hugolhafner/go-streams/runner/committer"
 	"github.com/hugolhafner/go-streams/runner/log"
 )
 
@@ -9,7 +8,6 @@ import (
 type Task interface {
 	Partition() log.TopicPartition
 	Process(record log.ConsumerRecord) error
-	CurrentOffset() int64
-	Committer() committer.Committer
+	CurrentOffset() log.Offset
 	Close() error
 }
