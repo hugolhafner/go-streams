@@ -6,7 +6,7 @@ import (
 
 type Processor[KIn, VIn, KOut, VOut any] interface {
 	Init(ctx Context[KOut, VOut])
-	Process(record *record.Record[KIn, VIn])
+	Process(record *record.Record[KIn, VIn]) error
 	Close() error
 }
 

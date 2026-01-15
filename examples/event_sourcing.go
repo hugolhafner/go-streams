@@ -58,8 +58,9 @@ func EventSourcing() {
 		return data
 	})
 
-	kstream.ForEach(orderCreated, func(key []byte, data OrderCreatedData) {
+	kstream.ForEach(orderCreated, func(key []byte, data OrderCreatedData) error {
 		sendOrderCreatedEmail(data)
+		return nil
 	})
 
 	orderUpdatedBranch := branches.Get("order-updated")
@@ -70,8 +71,9 @@ func EventSourcing() {
 		return data
 	})
 
-	kstream.ForEach(orderUpdated, func(key []byte, data OrderUpdatedData) {
+	kstream.ForEach(orderUpdated, func(key []byte, data OrderUpdatedData) error {
 		processOrderUpdate(data)
+		return nil
 	})
 
 	kstream.To(kstream.Map(orderUpdated, func(key []byte, data OrderUpdatedData) ([]byte, []byte) {

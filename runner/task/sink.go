@@ -18,12 +18,12 @@ func (s *sinkHandler) Process(rec *record.UntypedRecord) error {
 	topic := s.node.Topic()
 	fmt.Println("Producing record to topic:", topic)
 
-	key, err := s.node.KeySerde().Serialize(topic, rec.Key)
+	key, err := s.node.KeySerde().Serialise(topic, rec.Key)
 	if err != nil {
 		return fmt.Errorf("serialize key: %w", err)
 	}
 
-	value, err := s.node.ValueSerde().Serialize(topic, rec.Value)
+	value, err := s.node.ValueSerde().Serialise(topic, rec.Value)
 	if err != nil {
 		return fmt.Errorf("serialize value: %w", err)
 	}

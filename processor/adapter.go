@@ -22,8 +22,7 @@ func (a *untypedProcessorAdapter[KIn, VIn, KOut, VOut]) Process(r *record.Untype
 		Value:    r.Value.(VIn),
 		Metadata: r.Metadata,
 	}
-	a.typed.Process(typed)
-	return nil
+	return a.typed.Process(typed)
 }
 
 func (a *untypedProcessorAdapter[KIn, VIn, KOut, VOut]) Close() error {

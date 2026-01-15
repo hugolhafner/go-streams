@@ -32,7 +32,7 @@ func ToWithSerde[K, V any](s KStream[K, V], topic string, keySerde serde.Serde[K
 
 // ForEach applies an action to each record
 // terminal operation
-func ForEach[K, V any](s KStream[K, V], action func(K, V)) {
+func ForEach[K, V any](s KStream[K, V], action func(K, V) error) {
 	name := s.builder.nextName("FOREACH")
 
 	var supplier processor.Supplier[K, V, K, V] = func() processor.Processor[K, V, K, V] {

@@ -31,12 +31,12 @@ func (t *TopologyTask) CurrentOffset() log.Offset {
 }
 
 func (t *TopologyTask) Process(rec log.ConsumerRecord) error {
-	key, err := t.source.KeySerde().Deserialize(rec.Topic, rec.Key)
+	key, err := t.source.KeySerde().Deserialise(rec.Topic, rec.Key)
 	if err != nil {
 		return fmt.Errorf("deserialize key: %w", err)
 	}
 
-	value, err := t.source.ValueSerde().Deserialize(rec.Topic, rec.Value)
+	value, err := t.source.ValueSerde().Deserialise(rec.Topic, rec.Value)
 	if err != nil {
 		return fmt.Errorf("deserialize value: %w", err)
 	}

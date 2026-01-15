@@ -19,8 +19,8 @@ func (p *PassthroughProcessor[K, V]) Init(ctx processor.Context[K, V]) {
 	p.ctx = ctx
 }
 
-func (p *PassthroughProcessor[K, V]) Process(r *record.Record[K, V]) {
-	p.ctx.Forward(r)
+func (p *PassthroughProcessor[K, V]) Process(r *record.Record[K, V]) error {
+	return p.ctx.Forward(r)
 }
 
 func (p *PassthroughProcessor[K, V]) Close() error {

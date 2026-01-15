@@ -14,11 +14,11 @@ type Deserialiser[T any] interface {
 }
 
 type UntypedDeserialiser interface {
-	Deserialize(topic string, data []byte) (any, error)
+	Deserialise(topic string, data []byte) (any, error)
 }
 
 type UntypedSerialiser interface {
-	Serialize(topic string, value any) ([]byte, error)
+	Serialise(topic string, value any) ([]byte, error)
 }
 
 type UntypedSerde interface {
