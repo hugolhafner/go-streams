@@ -5,9 +5,9 @@ import (
 	"encoding/json"
 
 	"github.com/hugolhafner/go-streams"
+	"github.com/hugolhafner/go-streams/internal/kafka"
+	"github.com/hugolhafner/go-streams/internal/runner"
 	"github.com/hugolhafner/go-streams/kstream"
-	"github.com/hugolhafner/go-streams/runner"
-	"github.com/hugolhafner/go-streams/runner/log"
 	"github.com/hugolhafner/go-streams/serde"
 )
 
@@ -86,7 +86,7 @@ func EventSourcing() {
 	t := builder.Build()
 	t.PrintTree()
 
-	client, err := log.NewKgoClient()
+	client, err := kafka.NewKgoClient()
 	if err != nil {
 		panic(err)
 	}

@@ -3,34 +3,34 @@ package task
 import (
 	"fmt"
 
+	"github.com/hugolhafner/go-streams/internal/kafka"
 	"github.com/hugolhafner/go-streams/processor"
 	"github.com/hugolhafner/go-streams/record"
-	"github.com/hugolhafner/go-streams/runner/log"
 	"github.com/hugolhafner/go-streams/topology"
 )
 
 var _ Task = (*TopologyTask)(nil)
 
 type TopologyTask struct {
-	partition  log.TopicPartition
-	source     topology.SourceNode
+	partition kafka.TopicPartition
+	source    topology.SourceNode
 	processors map[string]processor.UntypedProcessor
 	contexts   map[string]*nodeContext
-	sinks      map[string]*sinkHandler
-	producer   log.Producer
-	offset     log.Offset
-	topology   *topology.Topology
+	sinks     map[string]*sinkHandler
+	producer  kafka.Producer
+	offset    kafka.Offset
+	topology  *topology.Topology
 }
 
-func (t *TopologyTask) Partition() log.TopicPartition {
+func (t *TopologyTask) Partition() kafka.TopicPartition {
 	return t.partition
 }
 
-func (t *TopologyTask) CurrentOffset() log.Offset {
+func (t *TopologyTask) CurrentOffset() kafka.Offset {
 	return t.offset
 }
 
-func (t *TopologyTask) Process(rec log.ConsumerRecord) error {
+func (t *TopologyTask) Process(rec kafka.ConsumerRecord) error {
 	key, err := t.source.KeySerde().Deserialise(rec.Topic, rec.Key)
 	if err != nil {
 		return fmt.Errorf("deserialize key: %w", err)
@@ -61,7 +61,7 @@ func (t *TopologyTask) Process(rec log.ConsumerRecord) error {
 		}
 	}
 
-	t.offset = log.Offset{
+	t.offset = kafka.Offset{
 		Offset:      rec.Offset + 1,
 		LeaderEpoch: rec.LeaderEpoch,
 	}

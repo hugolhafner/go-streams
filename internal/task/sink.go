@@ -4,14 +4,14 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/hugolhafner/go-streams/internal/kafka"
 	"github.com/hugolhafner/go-streams/record"
-	"github.com/hugolhafner/go-streams/runner/log"
 	"github.com/hugolhafner/go-streams/topology"
 )
 
 type sinkHandler struct {
 	node     topology.SinkNode
-	producer log.Producer
+	producer kafka.Producer
 }
 
 func (s *sinkHandler) Process(rec *record.UntypedRecord) error {

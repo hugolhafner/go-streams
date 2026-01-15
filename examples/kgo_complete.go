@@ -6,10 +6,10 @@ import (
 	"os/signal"
 
 	"github.com/hugolhafner/go-streams"
+	"github.com/hugolhafner/go-streams/internal/kafka"
+	"github.com/hugolhafner/go-streams/internal/runner"
 	"github.com/hugolhafner/go-streams/kstream"
 	"github.com/hugolhafner/go-streams/plugins/zaplogger"
-	"github.com/hugolhafner/go-streams/runner"
-	"github.com/hugolhafner/go-streams/runner/log"
 	"github.com/hugolhafner/go-streams/serde"
 	"go.uber.org/zap"
 )
@@ -48,8 +48,9 @@ func KgoComplete() {
 	t := builder.Build()
 	t.PrintTree()
 
-	client, err := log.NewKgoClient(
-		log.WithBootstrapServers([]string{"localhost:19092"}),
+	client, err := kafka.NewKgoClient(
+		kafka.WithGroupID("example-kgo-complete"),
+		kafka.WithBootstrapServers([]string{"localhost:19092"}),
 	)
 	if err != nil {
 		panic(err)

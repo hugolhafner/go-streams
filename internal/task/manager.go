@@ -1,0 +1,17 @@
+package task
+
+import (
+	"github.com/hugolhafner/go-streams/internal/kafka"
+)
+
+// Manager handles task lifecycle
+type Manager interface {
+	kafka.RebalanceCallback
+
+	Tasks() map[kafka.TopicPartition]Task
+	TaskFor(partition kafka.TopicPartition) (Task, bool)
+
+	GetCommitOffsets() map[kafka.TopicPartition]kafka.Offset
+
+	Close() error
+}

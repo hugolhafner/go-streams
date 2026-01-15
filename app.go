@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/hugolhafner/go-streams/runner"
-	"github.com/hugolhafner/go-streams/runner/log"
-	"github.com/hugolhafner/go-streams/runner/task"
+	"github.com/hugolhafner/go-streams/internal/kafka"
+	"github.com/hugolhafner/go-streams/internal/runner"
+	"github.com/hugolhafner/go-streams/internal/task"
 	"github.com/hugolhafner/go-streams/topology"
 )
 
@@ -21,7 +21,7 @@ type Application struct {
 	topology *topology.Topology
 	config   Config
 
-	client log.Client
+	client kafka.Client
 	logger Logger
 
 	mu        sync.Mutex
@@ -31,7 +31,7 @@ type Application struct {
 	closedCh  chan struct{}
 }
 
-func NewApplication(client log.Client, topology *topology.Topology, opts ...ConfigOption) (*Application, error) {
+func NewApplication(client kafka.Client, topology *topology.Topology, opts ...ConfigOption) (*Application, error) {
 	config := defaultConfig()
 	for _, opt := range opts {
 		opt(&config)
@@ -40,7 +40,7 @@ func NewApplication(client log.Client, topology *topology.Topology, opts ...Conf
 	return NewApplicationWithConfig(client, topology, config)
 }
 
-func NewApplicationWithConfig(client log.Client, topology *topology.Topology, config Config) (*Application, error) {
+func NewApplicationWithConfig(client kafka.Client, topology *topology.Topology, config Config) (*Application, error) {
 	return &Application{
 		topology: topology,
 		config:   config,

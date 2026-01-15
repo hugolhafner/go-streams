@@ -3,13 +3,13 @@ package task
 import (
 	"fmt"
 
+	"github.com/hugolhafner/go-streams/internal/kafka"
 	"github.com/hugolhafner/go-streams/processor"
-	"github.com/hugolhafner/go-streams/runner/log"
 	"github.com/hugolhafner/go-streams/topology"
 )
 
 type Factory interface {
-	CreateTask(partition log.TopicPartition, producer log.Producer) (Task, error)
+	CreateTask(partition kafka.TopicPartition, producer kafka.Producer) (Task, error)
 }
 
 var _ Factory = (*topologyTaskFactory)(nil)
@@ -48,7 +48,7 @@ func NewTopologyTaskFactory(t *topology.Topology, opts ...FactoryOption) (Factor
 	return factory, nil
 }
 
-func (f *topologyTaskFactory) CreateTask(partition log.TopicPartition, producer log.Producer) (Task, error) {
+func (f *topologyTaskFactory) CreateTask(partition kafka.TopicPartition, producer kafka.Producer) (Task, error) {
 	source, ok := f.sourceByTopic[partition.Topic]
 	if !ok {
 		return nil, fmt.Errorf("no source node for topic: %s", partition.Topic)
@@ -62,7 +62,7 @@ func (f *topologyTaskFactory) CreateTask(partition log.TopicPartition, producer 
 		contexts:   make(map[string]*nodeContext),
 		sinks:      make(map[string]*sinkHandler),
 		processors: make(map[string]processor.UntypedProcessor),
-		offset:     log.Offset{Offset: -1, LeaderEpoch: -1},
+		offset:     kafka.Offset{Offset: -1, LeaderEpoch: -1},
 	}
 
 	return task.init()

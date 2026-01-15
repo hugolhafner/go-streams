@@ -1,0 +1,15 @@
+package runner
+
+import (
+	"context"
+
+	"github.com/hugolhafner/go-streams/internal/kafka"
+	"github.com/hugolhafner/go-streams/internal/task"
+	"github.com/hugolhafner/go-streams/topology"
+)
+
+type Runner interface {
+	Run(ctx context.Context) error
+}
+
+type Factory = func(t *topology.Topology, f task.Factory, consumer kafka.Consumer, producer kafka.Producer) (Runner, error)

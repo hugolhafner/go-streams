@@ -1,4 +1,4 @@
-package log
+package kafka
 
 import (
 	"time"

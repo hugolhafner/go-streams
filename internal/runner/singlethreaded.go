@@ -5,17 +5,17 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/hugolhafner/go-streams/runner/committer"
-	"github.com/hugolhafner/go-streams/runner/log"
-	"github.com/hugolhafner/go-streams/runner/task"
+	"github.com/hugolhafner/go-streams/internal/committer"
+	"github.com/hugolhafner/go-streams/internal/kafka"
+	"github.com/hugolhafner/go-streams/internal/task"
 	"github.com/hugolhafner/go-streams/topology"
 )
 
 var _ Runner = (*SingleThreaded)(nil)
 
 type SingleThreaded struct {
-	consumer    log.Consumer
-	producer    log.Producer
+	consumer    kafka.Consumer
+	producer    kafka.Producer
 	taskManager task.Manager
 	topology    *topology.Topology
 	config      SingleThreadedConfig
@@ -31,7 +31,7 @@ func NewSingleThreadedRunner(
 		opt(&config)
 	}
 
-	return func(t *topology.Topology, f task.Factory, consumer log.Consumer, producer log.Producer) (Runner, error) {
+	return func(t *topology.Topology, f task.Factory, consumer kafka.Consumer, producer kafka.Producer) (Runner, error) {
 		return &SingleThreaded{
 			consumer:    consumer,
 			producer:    producer,
