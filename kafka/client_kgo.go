@@ -53,7 +53,8 @@ func WithGroupID(id string) KgoOption {
 
 func WithLogger(l logger.Logger) KgoOption {
 	return func(cfg *KgoClientConfig) {
-		cfg.Logger = l
+		cfg.Logger = l.
+			With("client", "kgo")
 	}
 }
 
@@ -150,6 +151,9 @@ func (k *KgoClient) Subscribe(topics []string, rebalanceCb RebalanceCallback) er
 }
 
 func (k *KgoClient) Poll(ctx context.Context) ([]ConsumerRecord, error) {
+	ctx, cancel := context.WithTimeout(ctx, k.config.PollTimeout)
+	defer cancel()
+
 	fetches := k.client.PollRecords(ctx, k.config.MaxPollRecords)
 	if errs := fetches.Errors(); len(errs) > 0 {
 		for _, err := range errs {

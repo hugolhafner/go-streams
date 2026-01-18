@@ -8,6 +8,6 @@ import (
 type Task interface {
 	Partition() kafka.TopicPartition
 	Process(record kafka.ConsumerRecord) error
-	CurrentOffset() kafka.Offset
+	CurrentOffset() (kafka.Offset, bool)
 	Close() error
 }

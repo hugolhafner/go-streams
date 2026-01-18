@@ -23,7 +23,7 @@ func filterInvalidOrders(k []byte, v Order) bool {
 	} else {
 		zap.L().Debug("Valid order", zap.String("key", string(k)), zap.Any("value", v))
 	}
-	
+
 	return keep
 }
 
@@ -53,7 +53,7 @@ func KgoComplete() {
 	t.PrintTree()
 
 	client, err := kafka.NewKgoClient(
-		// kafka.WithLogger(klogger),
+		kafka.WithLogger(klogger),
 		kafka.WithGroupID("example-kgo-complete"),
 		kafka.WithBootstrapServers([]string{"localhost:19092"}),
 	)
@@ -71,8 +71,6 @@ func KgoComplete() {
 	if err != nil {
 		panic(err)
 	}
-
-	defer app.Close()
 
 	go func() {
 		ch := make(chan os.Signal, 1)

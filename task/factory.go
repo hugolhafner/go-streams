@@ -38,7 +38,7 @@ func NewTopologyTaskFactory(t *topology.Topology, logger logger.Logger) (Factory
 	factory := &topologyTaskFactory{
 		topology:      t,
 		sourceByTopic: sourceByTopic,
-		logger:        logger,
+		logger:        logger.With("component", "task-factory"),
 	}
 
 	return factory, nil
@@ -59,7 +59,10 @@ func (f *topologyTaskFactory) CreateTask(partition kafka.TopicPartition, produce
 		sinks:      make(map[string]*sinkHandler),
 		processors: make(map[string]processor.UntypedProcessor),
 		offset:     kafka.Offset{Offset: -1, LeaderEpoch: -1},
-		logger:     f.logger,
+		logger: f.logger.
+			With("component", "task").
+			With("topic", partition.Topic).
+			With("partition", partition.Partition),
 	}
 
 	return task.init()

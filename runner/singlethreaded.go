@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/hugolhafner/dskit/backoff"
+	"github.com/hugolhafner/dskit/retry"
+
 	"github.com/hugolhafner/go-streams/committer"
 	"github.com/hugolhafner/go-streams/kafka"
 	"github.com/hugolhafner/go-streams/logger"
@@ -21,8 +23,6 @@ type SingleThreaded struct {
 	taskManager task.Manager
 	topology    *topology.Topology
 	config      SingleThreadedConfig
-
-	pollBackoff backoff.Backoff
 
 	committer committer.Committer
 	logger    logger.Logger
@@ -45,15 +45,11 @@ func NewSingleThreadedRunner(
 			producer:    producer,
 			taskManager: task.NewManager(f, producer, logger),
 			topology:    t,
-			pollBackoff: backoff.NewExponential(
-				backoff.WithInitialInterval(time.Millisecond*100),
-				backoff.WithMaxInterval(time.Second*3),
-				backoff.WithMultiplier(2.0),
-				backoff.WithJitter(0.2),
-			),
-			config:    config,
-			committer: config.CommitterFactory(),
-			logger:    logger,
+			config:      config,
+			committer:   config.CommitterFactory(),
+			logger: logger.
+				With("component", "runner").
+				With("runner", "single-threaded"),
 		}, nil
 	}
 }
@@ -69,6 +65,7 @@ func (r *SingleThreaded) sourceTopics() []string {
 }
 
 func (r *SingleThreaded) shutdown() {
+	r.committer.Close()
 	if err := r.commitOffsets(); err != nil {
 		r.logger.Error("Failed to commit offsets during shutdown", "error", err)
 	}
@@ -83,12 +80,46 @@ func (r *SingleThreaded) commitOffsets() error {
 	return r.consumer.Commit(offsets)
 }
 
+func (r *SingleThreaded) runCommitLoop() {
+	r.logger.Info("Starting commit loop")
+
+	rp := retry.MustNewPolicy(
+		"commit",
+		retry.WithMaxAttempts(10),
+		retry.WithBackoff(
+			backoff.NewExponential(
+				backoff.WithMaxInterval(time.Second*3),
+				backoff.WithJitter(0.2),
+			),
+		),
+	)
+
+	for {
+		_, ok := <-r.committer.C()
+		if !ok {
+			r.logger.Info("Commit loop shutting down")
+			return
+		}
+
+		r.logger.Debug("Committing offsets")
+
+		if err := retry.Do(
+			context.Background(), rp, func(ctx context.Context) error {
+				return r.commitOffsets()
+			},
+		); err != nil {
+			r.logger.Error("Failed to commit offsets", "error", err)
+		}
+	}
+}
+
 func (r *SingleThreaded) Run(ctx context.Context) error {
 	topics := r.sourceTopics()
 	if err := r.consumer.Subscribe(topics, r.taskManager); err != nil {
 		return fmt.Errorf("failed to subscribe to topics: %w", err)
 	}
 
+	go r.runCommitLoop()
 	defer r.shutdown()
 
 	for {
@@ -97,11 +128,15 @@ func (r *SingleThreaded) Run(ctx context.Context) error {
 			return nil
 		default:
 		}
-		
+
+		r.logger.Debug("Polling for records")
+
 		records, err := r.consumer.Poll(ctx)
 		if err != nil {
 			return fmt.Errorf("failed to poll: %w", err)
 		}
+
+		r.logger.Debug("Received records", "records", len(records))
 
 		for _, record := range records {
 			t, ok := r.taskManager.TaskFor(record.TopicPartition())
@@ -114,21 +149,11 @@ func (r *SingleThreaded) Run(ctx context.Context) error {
 				continue
 			}
 
-			if err := t.Process(record); err != nil {
-				// TODO: Error handling strategy
-				r.logger.Error("Failed to process record", "error", err)
-			}
+			// TODO: Does this need to return an error?
+			// nolint:errcheck
+			t.Process(record)
 		}
 
 		r.committer.RecordProcessed(len(records))
-		if locked := r.committer.TryCommit(); locked {
-			r.logger.Info("Committing offsets")
-			if err := r.commitOffsets(); err != nil {
-				r.committer.UnlockCommit(false)
-				return fmt.Errorf("failed to commit offsets: %w", err)
-			}
-
-			r.committer.UnlockCommit(true)
-		}
 	}
 }

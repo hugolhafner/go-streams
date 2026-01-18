@@ -29,11 +29,21 @@ func (t *TopologyTask) Partition() kafka.TopicPartition {
 	return t.partition
 }
 
-func (t *TopologyTask) CurrentOffset() kafka.Offset {
-	return t.offset
+func (t *TopologyTask) CurrentOffset() (kafka.Offset, bool) {
+	if t.offset.Offset == -1 {
+		return kafka.Offset{}, false
+	}
+
+	return t.offset, true
 }
 
-func (t *TopologyTask) Process(rec kafka.ConsumerRecord) error {
+func (t *TopologyTask) processSafe(rec kafka.ConsumerRecord) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("panic recovered: %v", r)
+		}
+	}()
+
 	key, err := t.source.KeySerde().Deserialise(rec.Topic, rec.Key)
 	if err != nil {
 		return fmt.Errorf("deserialize key: %w", err)
@@ -67,12 +77,22 @@ func (t *TopologyTask) Process(rec kafka.ConsumerRecord) error {
 		}
 	}
 
+	return nil
+}
+
+func (t *TopologyTask) Process(rec kafka.ConsumerRecord) error {
+	err := t.processSafe(rec)
+	if err != nil {
+		// TODO: add configurable error handling strategies
+		t.logger.Error("Error processing record, skipping", "error", err)
+	}
+
 	t.offset = kafka.Offset{
 		Offset:      rec.Offset + 1,
 		LeaderEpoch: rec.LeaderEpoch,
 	}
 
-	return nil
+	return err
 }
 
 func (t *TopologyTask) processAt(nodeName string, rec *record.UntypedRecord) error {

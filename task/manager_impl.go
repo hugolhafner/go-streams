@@ -37,7 +37,7 @@ func (m *managerImpl) OnAssigned(partitions []kafka.TopicPartition) error {
 				_ = t.Close()
 				delete(m.tasks, tp)
 			}
-			
+
 			return fmt.Errorf("create task: %w", err)
 		}
 
@@ -93,7 +93,12 @@ func (m *managerImpl) GetCommitOffsets() map[kafka.TopicPartition]kafka.Offset {
 
 	offsets := make(map[kafka.TopicPartition]kafka.Offset)
 	for p, task := range m.tasks {
-		offsets[p] = task.CurrentOffset()
+		o, ok := task.CurrentOffset()
+		if !ok {
+			continue
+		}
+
+		offsets[p] = o
 	}
 
 	return offsets
@@ -119,6 +124,6 @@ func NewManager(factory Factory, producer kafka.Producer, logger logger.Logger) 
 		tasks:    make(map[kafka.TopicPartition]Task),
 		factory:  factory,
 		producer: producer,
-		logger:   logger,
+		logger:   logger.With("component", "task-manager"),
 	}
 }

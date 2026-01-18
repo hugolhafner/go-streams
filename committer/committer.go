@@ -1,8 +1,7 @@
 package committer
 
 type Committer interface {
-	TryCommit() bool
-	UnlockCommit(ok bool)
-
+	C() chan struct{}
 	RecordProcessed(count int)
+	Close()
 }

@@ -20,6 +20,7 @@ type Logger interface {
 	Info(msg string, kv ...any)
 	Warn(msg string, kv ...any)
 	Error(msg string, kv ...any)
+	With(kv ...any) Logger
 }
 
 type NoopLogger struct{}
