@@ -15,6 +15,7 @@ func newNameGenerator() *nameGenerator {
 		count:  0,
 	}
 }
+
 func (ng *nameGenerator) next(customPrefix string) string {
 	ng.count++
 	if customPrefix != "" {

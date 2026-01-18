@@ -1,7 +1,7 @@
 package runner
 
 import (
-	"github.com/hugolhafner/go-streams/internal/committer"
+	"github.com/hugolhafner/go-streams/committer"
 )
 
 type SingleThreadedConfig struct {

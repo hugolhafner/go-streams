@@ -25,35 +25,45 @@ func New() *Topology {
 	}
 }
 
-func (t *Topology) AddSource(name, topic string, keySerde serde.UntypedDeserialiser,
-	valueSerde serde.UntypedDeserialiser) *Topology {
-	t.AddNode(&sourceNode{
-		name:       name,
-		topic:      topic,
-		keySerde:   keySerde,
-		valueSerde: valueSerde,
-	})
+func (t *Topology) AddSource(
+	name, topic string, keySerde serde.UntypedDeserialiser,
+	valueSerde serde.UntypedDeserialiser,
+) *Topology {
+	t.AddNode(
+		&sourceNode{
+			name:       name,
+			topic:      topic,
+			keySerde:   keySerde,
+			valueSerde: valueSerde,
+		},
+	)
 
 	return t
 }
 
 func (t *Topology) AddProcessor(name string, supplier processor.UntypedSupplier, parents ...string) *Topology {
-	t.AddNode(&processorNode{
-		name:     name,
-		supplier: supplier,
-	}, parents...)
+	t.AddNode(
+		&processorNode{
+			name:     name,
+			supplier: supplier,
+		}, parents...,
+	)
 
 	return t
 }
 
-func (t *Topology) AddSink(name, topic string, keySerde serde.UntypedSerialiser, valueSerde serde.UntypedSerialiser,
-	parents ...string) *Topology {
-	t.AddNode(&sinkNode{
-		name:       name,
-		topic:      topic,
-		keySerde:   keySerde,
-		valueSerde: valueSerde,
-	}, parents...)
+func (t *Topology) AddSink(
+	name, topic string, keySerde serde.UntypedSerialiser, valueSerde serde.UntypedSerialiser,
+	parents ...string,
+) *Topology {
+	t.AddNode(
+		&sinkNode{
+			name:       name,
+			topic:      topic,
+			keySerde:   keySerde,
+			valueSerde: valueSerde,
+		}, parents...,
+	)
 
 	return t
 }
@@ -64,10 +74,12 @@ func (t *Topology) AddProcessorWithChildName(
 	parent string,
 	childName string,
 ) *Topology {
-	t.AddNode(&processorNode{
-		name:     name,
-		supplier: supplier,
-	}, parent)
+	t.AddNode(
+		&processorNode{
+			name:     name,
+			supplier: supplier,
+		}, parent,
+	)
 
 	if t.namedEdges[parent] == nil {
 		t.namedEdges[parent] = make(map[string]string)

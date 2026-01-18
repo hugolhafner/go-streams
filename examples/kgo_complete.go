@@ -7,10 +7,10 @@ import (
 	"syscall"
 
 	"github.com/hugolhafner/go-streams"
-	"github.com/hugolhafner/go-streams/internal/kafka"
-	"github.com/hugolhafner/go-streams/internal/runner"
+	"github.com/hugolhafner/go-streams/kafka"
 	"github.com/hugolhafner/go-streams/kstream"
 	"github.com/hugolhafner/go-streams/plugins/zaplogger"
+	"github.com/hugolhafner/go-streams/runner"
 	"github.com/hugolhafner/go-streams/serde"
 	"go.uber.org/zap"
 )
@@ -71,8 +71,6 @@ func KgoComplete() {
 	if err != nil {
 		panic(err)
 	}
-
-	defer app.Close()
 
 	go func() {
 		ch := make(chan os.Signal, 1)

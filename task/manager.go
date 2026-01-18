@@ -1,7 +1,7 @@
 package task
 
 import (
-	"github.com/hugolhafner/go-streams/internal/kafka"
+	"github.com/hugolhafner/go-streams/kafka"
 )
 
 // Manager handles task lifecycle

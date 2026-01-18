@@ -4,9 +4,9 @@ import (
 	"context"
 
 	"github.com/hugolhafner/go-streams"
-	"github.com/hugolhafner/go-streams/internal/kafka"
-	"github.com/hugolhafner/go-streams/internal/runner"
+	"github.com/hugolhafner/go-streams/kafka"
 	"github.com/hugolhafner/go-streams/kstream"
+	"github.com/hugolhafner/go-streams/runner"
 	"github.com/hugolhafner/go-streams/serde"
 )
 
@@ -19,17 +19,22 @@ func BranchProcessor() {
 	builder := kstream.NewStreamsBuilder()
 	raw := kstream.StreamWithValueSerde(builder, "orders", serde.JSON[Order]())
 
-	valid := kstream.Filter(raw, func(k []byte, v Order) bool {
-		return v.ID != "" && v.Amount > 0
-	})
-
-	branches := kstream.Branch(valid,
-		kstream.NewBranch(highValueTopic, func(k []byte, v Order) bool {
-			return v.Amount >= 1000
-		}),
-		kstream.DefaultBranch[[]byte, Order](regularTopic),
+	valid := kstream.Filter(
+		raw, func(k []byte, v Order) bool {
+			return v.ID != "" && v.Amount > 0
+		},
 	)
 
+	branches := kstream.Branch(
+		valid,
+		kstream.NewBranch(
+			highValueTopic, func(k []byte, v Order) bool {
+				return v.Amount >= 1000
+			},
+		),
+		kstream.DefaultBranch[[]byte, Order](regularTopic),
+	)
+	
 	highValueOrders := branches.Get(highValueTopic)
 	kstream.ToWithValueSerde(highValueOrders, highValueTopic, serde.JSON[Order]())
 

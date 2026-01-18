@@ -29,9 +29,11 @@ func MapValues[K, VIn, VOut any](
 	s KStream[K, VIn],
 	mapper func(VIn) VOut,
 ) KStream[K, VOut] {
-	return Map(s, func(k K, v VIn) (K, VOut) {
-		return k, mapper(v)
-	})
+	return Map(
+		s, func(k K, v VIn) (K, VOut) {
+			return k, mapper(v)
+		},
+	)
 }
 
 // MapKeys transforms each record's key, keeping the value unchanged
@@ -39,7 +41,9 @@ func MapKeys[KIn, KOut, V any](
 	s KStream[KIn, V],
 	mapper func(KIn) KOut,
 ) KStream[KOut, V] {
-	return Map(s, func(k KIn, v V) (KOut, V) {
-		return mapper(k), v
-	})
+	return Map(
+		s, func(k KIn, v V) (KOut, V) {
+			return mapper(k), v
+		},
+	)
 }

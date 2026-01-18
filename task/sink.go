@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/hugolhafner/go-streams/internal/kafka"
+	"github.com/hugolhafner/go-streams/kafka"
 	"github.com/hugolhafner/go-streams/record"
 	"github.com/hugolhafner/go-streams/topology"
 )

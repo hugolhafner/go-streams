@@ -5,10 +5,13 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/hugolhafner/go-streams/internal/committer"
-	"github.com/hugolhafner/go-streams/internal/kafka"
-	"github.com/hugolhafner/go-streams/internal/task"
+	"github.com/hugolhafner/dskit/backoff"
+	"github.com/hugolhafner/dskit/retry"
+
+	"github.com/hugolhafner/go-streams/committer"
+	"github.com/hugolhafner/go-streams/kafka"
 	"github.com/hugolhafner/go-streams/logger"
+	"github.com/hugolhafner/go-streams/task"
 	"github.com/hugolhafner/go-streams/topology"
 )
 
@@ -33,15 +36,20 @@ func NewSingleThreadedRunner(
 		opt(&config)
 	}
 
-	return func(t *topology.Topology, f task.Factory, consumer kafka.Consumer, producer kafka.Producer,
-		logger logger.Logger) (Runner, error) {
+	return func(
+		t *topology.Topology, f task.Factory, consumer kafka.Consumer, producer kafka.Producer,
+		logger logger.Logger,
+	) (Runner, error) {
 		return &SingleThreaded{
 			consumer:    consumer,
 			producer:    producer,
 			taskManager: task.NewManager(f, producer, logger),
 			topology:    t,
+			config:      config,
 			committer:   config.CommitterFactory(),
-			logger:      logger,
+			logger: logger.
+				With("component", "runner").
+				With("runner", "single-threaded"),
 		}, nil
 	}
 }
@@ -57,12 +65,10 @@ func (r *SingleThreaded) sourceTopics() []string {
 }
 
 func (r *SingleThreaded) shutdown() {
-	if err := r.commitOffsets(); err != nil {
-		r.logger.Log(logger.ErrorLevel, "Failed to commit offsets during shutdown", "error", err)
-	}
+	r.committer.Close()
 }
 
-func (r *SingleThreaded) commitOffsets() error {
+func (r *SingleThreaded) commitOffsets(_ context.Context) error {
 	offsets := r.taskManager.GetCommitOffsets()
 	if len(offsets) == 0 {
 		return nil
@@ -71,12 +77,42 @@ func (r *SingleThreaded) commitOffsets() error {
 	return r.consumer.Commit(offsets)
 }
 
+func (r *SingleThreaded) runCommitLoop() {
+	r.logger.Info("Starting commit loop")
+
+	rp := retry.MustNewPolicy(
+		"commit",
+		retry.WithMaxAttempts(10),
+		retry.WithBackoff(
+			backoff.NewExponential(
+				backoff.WithMaxInterval(time.Second*3),
+				backoff.WithJitter(0.2),
+			),
+		),
+	)
+
+	for {
+		_, ok := <-r.committer.C()
+		if !ok {
+			r.logger.Info("Commit loop shutting down")
+			return
+		}
+
+		r.logger.Debug("Committing offsets")
+
+		if err := retry.Do(context.Background(), rp, r.commitOffsets); err != nil {
+			r.logger.Error("Failed to commit offsets", "error", err)
+		}
+	}
+}
+
 func (r *SingleThreaded) Run(ctx context.Context) error {
 	topics := r.sourceTopics()
 	if err := r.consumer.Subscribe(topics, r.taskManager); err != nil {
 		return fmt.Errorf("failed to subscribe to topics: %w", err)
 	}
 
+	go r.runCommitLoop()
 	defer r.shutdown()
 
 	for {
@@ -86,41 +122,31 @@ func (r *SingleThreaded) Run(ctx context.Context) error {
 		default:
 		}
 
-		// TODO: Config timeout
-		// TODO: Poll retry?
-		records, err := r.consumer.Poll(ctx, time.Millisecond*100)
-		if err != nil {
-			if ctx.Err() != nil {
-				return ctx.Err()
-			}
+		r.logger.Debug("Polling for records")
 
+		records, err := r.consumer.Poll(ctx)
+		if err != nil {
 			return fmt.Errorf("failed to poll: %w", err)
 		}
+
+		r.logger.Debug("Received records", "records", len(records))
 
 		for _, record := range records {
 			t, ok := r.taskManager.TaskFor(record.TopicPartition())
 			if !ok {
-				r.logger.Log(logger.WarnLevel, "No task found for topic partition", "topic_partition",
-					record.TopicPartition())
+				r.logger.Warn(
+					"No task found for topic partition", "topic_partition",
+					record.TopicPartition(),
+				)
 				// TODO: Is this safe?
 				continue
 			}
 
-			if err := t.Process(record); err != nil {
-				// TODO: Error handling strategy
-				return fmt.Errorf("failed to process record: %w", err)
-			}
+			// TODO: Does this need to return an error?
+			// nolint:errcheck
+			t.Process(record)
 		}
 
 		r.committer.RecordProcessed(len(records))
-		if locked := r.committer.TryCommit(); locked {
-			r.logger.Log(logger.InfoLevel, "Committing offsets")
-			if err := r.commitOffsets(); err != nil {
-				r.committer.UnlockCommit(false)
-				return fmt.Errorf("failed to commit offsets: %w", err)
-			}
-
-			r.committer.UnlockCommit(true)
-		}
 	}
 }

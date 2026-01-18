@@ -1,7 +1,6 @@
 package committer
 
 import (
-	"sync"
 	"time"
 )
 
@@ -30,8 +29,7 @@ type PeriodicCommitter struct {
 	c          PeriodicCommitterConfig
 	count      int
 	lastCommit time.Time
-
-	mu sync.Mutex
+	channel    chan struct{}
 }
 
 func NewPeriodicCommitter(opts ...PeriodicCommitterOption) *PeriodicCommitter {
@@ -48,34 +46,23 @@ func NewPeriodicCommitter(opts ...PeriodicCommitterOption) *PeriodicCommitter {
 		c:          cfg,
 		count:      0,
 		lastCommit: time.Now(),
-		mu:         sync.Mutex{},
+		channel:    make(chan struct{}),
 	}
 }
 
 func (p *PeriodicCommitter) RecordProcessed(count int) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
 	p.count += count
-}
-
-func (p *PeriodicCommitter) TryCommit() bool {
-	p.mu.Lock()
-
-	should := (p.count > 0) && (p.count >= p.c.MaxCount || time.Since(p.lastCommit) >= p.c.MaxInterval)
-	if !should {
-		p.mu.Unlock()
-		return false
-	}
-
-	return true
-}
-
-func (p *PeriodicCommitter) UnlockCommit(ok bool) {
-	defer p.mu.Unlock()
-
-	if ok {
+	if p.count > 0 && (p.count >= p.c.MaxCount || time.Since(p.lastCommit) >= p.c.MaxInterval) {
+		p.channel <- struct{}{}
 		p.count = 0
 		p.lastCommit = time.Now()
 	}
+}
+
+func (p *PeriodicCommitter) C() chan struct{} {
+	return p.channel
+}
+
+func (p *PeriodicCommitter) Close() {
+	close(p.channel)
 }

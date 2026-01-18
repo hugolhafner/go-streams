@@ -6,16 +6,18 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
-var _ logger.Logger = (*ZapLogger)(nil)
+var _ logger.Base = (*ZapLogger)(nil)
 
 type ZapLogger struct {
 	l *zap.Logger
 }
 
-func New(l *zap.Logger) *ZapLogger {
-	return &ZapLogger{
-		l,
-	}
+func New(l *zap.Logger) logger.Logger {
+	return logger.WrapLogger(
+		&ZapLogger{
+			l,
+		},
+	)
 }
 
 func (z *ZapLogger) Level() logger.LogLevel {

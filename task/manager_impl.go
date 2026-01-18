@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/hugolhafner/go-streams/internal/kafka"
+	"github.com/hugolhafner/go-streams/kafka"
 	"github.com/hugolhafner/go-streams/logger"
 )
 
@@ -23,7 +23,7 @@ func (m *managerImpl) OnAssigned(partitions []kafka.TopicPartition) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	m.logger.Log(logger.DebugLevel, "Assigning partitions", "partitions", partitions)
+	m.logger.Debug("Assigning partitions", "partitions", partitions)
 
 	for _, p := range partitions {
 		if _, exists := m.tasks[p]; exists {
@@ -93,7 +93,12 @@ func (m *managerImpl) GetCommitOffsets() map[kafka.TopicPartition]kafka.Offset {
 
 	offsets := make(map[kafka.TopicPartition]kafka.Offset)
 	for p, task := range m.tasks {
-		offsets[p] = task.CurrentOffset()
+		o, ok := task.CurrentOffset()
+		if !ok {
+			continue
+		}
+
+		offsets[p] = o
 	}
 
 	return offsets
@@ -119,6 +124,6 @@ func NewManager(factory Factory, producer kafka.Producer, logger logger.Logger) 
 		tasks:    make(map[kafka.TopicPartition]Task),
 		factory:  factory,
 		producer: producer,
-		logger:   logger,
+		logger:   logger.With("component", "task-manager"),
 	}
 }

@@ -20,6 +20,7 @@ type KgoClientConfig struct {
 	SessionTimeout    time.Duration
 	HeartbeatInterval time.Duration
 	MaxPollRecords    int
+	PollTimeout       time.Duration
 
 	Logger logger.Logger
 }
@@ -28,9 +29,10 @@ func defaultConfig() KgoClientConfig {
 	return KgoClientConfig{
 		BootstrapServers:  []string{"localhost:9092"},
 		GroupID:           "default-group",
-		SessionTimeout:    30 * time.Second,
-		HeartbeatInterval: 10 * time.Second,
-		MaxPollRecords:    100,
+		SessionTimeout:    45 * time.Second,
+		HeartbeatInterval: 3 * time.Second,
+		PollTimeout:       3 * time.Second,
+		MaxPollRecords:    10,
 		Logger:            logger.NewNoopLogger(),
 	}
 }
@@ -51,7 +53,8 @@ func WithGroupID(id string) KgoOption {
 
 func WithLogger(l logger.Logger) KgoOption {
 	return func(cfg *KgoClientConfig) {
-		cfg.Logger = l
+		cfg.Logger = l.
+			With("client", "kgo")
 	}
 }
 
@@ -82,6 +85,8 @@ func NewKgoClient(opts ...KgoOption) (*KgoClient, error) {
 		kgo.OnPartitionsAssigned(kc.onAssigned),
 		kgo.OnPartitionsRevoked(kc.onRevoked),
 		kgo.WithLogger(newKgoLogger(kc.logger)),
+		kgo.SessionTimeout(cfg.SessionTimeout),
+		kgo.HeartbeatInterval(cfg.HeartbeatInterval),
 		// TODO: Metrics support
 		// TODO: Support for block rebalance on poll
 		// kgo.BlockRebalanceOnPoll(),
@@ -109,7 +114,7 @@ func (k *KgoClient) onAssigned(ctx context.Context, c *kgo.Client, assigned map[
 	partitions := mapToTopicPartitions(assigned)
 	err := cb.OnAssigned(partitions)
 	if err != nil {
-		k.logger.Log(logger.ErrorLevel, "Error in OnAssigned callback:", "error", err)
+		k.logger.Error("Error in OnAssigned callback:", "error", err)
 	}
 }
 
@@ -125,7 +130,7 @@ func (k *KgoClient) onRevoked(ctx context.Context, c *kgo.Client, revoked map[st
 	partitions := mapToTopicPartitions(revoked)
 	err := cb.OnRevoked(partitions)
 	if err != nil {
-		k.logger.Log(logger.ErrorLevel, "Error in OnRevoked callback:", "error", err)
+		k.logger.Error("Error in OnRevoked callback:", "error", err)
 	}
 }
 
@@ -145,11 +150,11 @@ func (k *KgoClient) Subscribe(topics []string, rebalanceCb RebalanceCallback) er
 	return nil
 }
 
-func (k *KgoClient) Poll(ctx context.Context, timeout time.Duration) ([]ConsumerRecord, error) {
-	ctx, cancel := context.WithTimeout(ctx, timeout)
+func (k *KgoClient) Poll(ctx context.Context) ([]ConsumerRecord, error) {
+	ctx, cancel := context.WithTimeout(ctx, k.config.PollTimeout)
 	defer cancel()
 
-	fetches := k.client.PollFetches(ctx)
+	fetches := k.client.PollRecords(ctx, k.config.MaxPollRecords)
 	if errs := fetches.Errors(); len(errs) > 0 {
 		for _, err := range errs {
 			if !errors.Is(err.Err, context.DeadlineExceeded) && !errors.Is(err.Err, context.Canceled) {
@@ -173,8 +178,10 @@ func (k *KgoClient) Commit(offsets map[TopicPartition]Offset) error {
 			Epoch:  offset.LeaderEpoch,
 		}
 
-		k.logger.Log(logger.InfoLevel, "Preparing to commit offset", "topic", tp.Topic, "partition", tp.Partition,
-			"offset", offset.Offset)
+		k.logger.Info(
+			"Preparing to commit offset", "topic", tp.Topic, "partition", tp.Partition,
+			"offset", offset.Offset,
+		)
 	}
 
 	onDoneCh := make(chan error)
@@ -186,7 +193,7 @@ func (k *KgoClient) Commit(offsets map[TopicPartition]Offset) error {
 	err := <-onDoneCh
 
 	if err != nil {
-		k.logger.Log(logger.ErrorLevel, "Committing offsets error", "error", err)
+		k.logger.Error("Committing offsets error", "error", err)
 		return fmt.Errorf("commit offsets: %w", err)
 	}
 
@@ -201,7 +208,7 @@ func (k *KgoClient) Send(ctx context.Context, topic string, key, value []byte, h
 		Headers: convertToKgoHeaders(headers),
 	}
 
-	k.logger.Log(logger.InfoLevel, "Sending record", "topic", topic, "key", string(key), "value", string(value))
+	k.logger.Info("Sending record", "topic", topic, "key", string(key), "value", string(value))
 
 	results := k.client.ProduceSync(ctx, record)
 	return results.FirstErr()
@@ -251,10 +258,12 @@ func convertFromKgoHeaders(headers []kgo.RecordHeader) map[string][]byte {
 func convertToKgoHeaders(headers map[string][]byte) []kgo.RecordHeader {
 	kgoHeaders := make([]kgo.RecordHeader, 0, len(headers))
 	for k, v := range headers {
-		kgoHeaders = append(kgoHeaders, kgo.RecordHeader{
-			Key:   k,
-			Value: v,
-		})
+		kgoHeaders = append(
+			kgoHeaders, kgo.RecordHeader{
+				Key:   k,
+				Value: v,
+			},
+		)
 	}
 
 	return kgoHeaders
@@ -264,10 +273,12 @@ func mapToTopicPartitions(m map[string][]int32) []TopicPartition {
 	var tps []TopicPartition
 	for topic, partitions := range m {
 		for _, partition := range partitions {
-			tps = append(tps, TopicPartition{
-				Topic:     topic,
-				Partition: partition,
-			})
+			tps = append(
+				tps, TopicPartition{
+					Topic:     topic,
+					Partition: partition,
+				},
+			)
 		}
 	}
 
