@@ -6,17 +6,37 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/hugolhafner/go-streams/internal/kafka"
-	"github.com/hugolhafner/go-streams/internal/runner"
-	"github.com/hugolhafner/go-streams/internal/task"
+	"github.com/hugolhafner/go-streams/kafka"
 	"github.com/hugolhafner/go-streams/logger"
+	"github.com/hugolhafner/go-streams/runner"
+	"github.com/hugolhafner/go-streams/task"
 	"github.com/hugolhafner/go-streams/topology"
 )
+
+const Version = "v0.0.1" // x-release-please-version
 
 var (
 	ErrAlreadyRunning = errors.New("application is already running")
 	ErrClosed         = errors.New("application is closed")
 )
+
+type Config struct {
+	Logger logger.Logger
+}
+
+type ConfigOption func(*Config)
+
+func WithLogger(logger logger.Logger) ConfigOption {
+	return func(c *Config) {
+		c.Logger = logger
+	}
+}
+
+func defaultConfig() Config {
+	return Config{
+		Logger: logger.NewNoopLogger(),
+	}
+}
 
 type Application struct {
 	topology *topology.Topology

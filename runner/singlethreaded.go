@@ -5,10 +5,11 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/hugolhafner/go-streams/internal/committer"
-	"github.com/hugolhafner/go-streams/internal/kafka"
-	"github.com/hugolhafner/go-streams/internal/task"
+	"github.com/hugolhafner/dskit/backoff"
+	"github.com/hugolhafner/go-streams/committer"
+	"github.com/hugolhafner/go-streams/kafka"
 	"github.com/hugolhafner/go-streams/logger"
+	"github.com/hugolhafner/go-streams/task"
 	"github.com/hugolhafner/go-streams/topology"
 )
 
@@ -20,6 +21,8 @@ type SingleThreaded struct {
 	taskManager task.Manager
 	topology    *topology.Topology
 	config      SingleThreadedConfig
+
+	pollBackoff backoff.Backoff
 
 	committer committer.Committer
 	logger    logger.Logger
@@ -40,8 +43,15 @@ func NewSingleThreadedRunner(
 			producer:    producer,
 			taskManager: task.NewManager(f, producer, logger),
 			topology:    t,
-			committer:   config.CommitterFactory(),
-			logger:      logger,
+			pollBackoff: backoff.NewExponential(
+				backoff.WithInitialInterval(time.Millisecond*100),
+				backoff.WithMaxInterval(time.Second*3),
+				backoff.WithMultiplier(2.0),
+				backoff.WithJitter(0.2),
+			),
+			config:    config,
+			committer: config.CommitterFactory(),
+			logger:    logger,
 		}, nil
 	}
 }
@@ -58,7 +68,7 @@ func (r *SingleThreaded) sourceTopics() []string {
 
 func (r *SingleThreaded) shutdown() {
 	if err := r.commitOffsets(); err != nil {
-		r.logger.Log(logger.ErrorLevel, "Failed to commit offsets during shutdown", "error", err)
+		r.logger.Error("Failed to commit offsets during shutdown", "error", err)
 	}
 }
 
@@ -69,6 +79,32 @@ func (r *SingleThreaded) commitOffsets() error {
 	}
 
 	return r.consumer.Commit(offsets)
+}
+
+func (r *SingleThreaded) poll(ctx context.Context) ([]kafka.ConsumerRecord, error) {
+	r.logger.Debug("Polling for records")
+
+	var attempt uint = 1
+	for {
+		records, err := r.consumer.Poll(ctx)
+		if err != nil {
+			if ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
+
+			wait := r.pollBackoff.Next(attempt)
+			attempt++
+
+			r.logger.Error("Failed to poll records", "error", err, "attempt", attempt, "backoff",
+				wait.String())
+
+			time.Sleep(wait)
+			continue
+		}
+
+		r.logger.Debug("Received records", "count", len(records))
+		return records, nil
+	}
 }
 
 func (r *SingleThreaded) Run(ctx context.Context) error {
@@ -86,21 +122,16 @@ func (r *SingleThreaded) Run(ctx context.Context) error {
 		default:
 		}
 
-		// TODO: Config timeout
-		// TODO: Poll retry?
-		records, err := r.consumer.Poll(ctx, time.Millisecond*100)
+		records, err := r.poll(ctx)
 		if err != nil {
-			if ctx.Err() != nil {
-				return ctx.Err()
-			}
-
 			return fmt.Errorf("failed to poll: %w", err)
 		}
 
 		for _, record := range records {
 			t, ok := r.taskManager.TaskFor(record.TopicPartition())
 			if !ok {
-				r.logger.Log(logger.WarnLevel, "No task found for topic partition", "topic_partition",
+				r.logger.Warn(
+				"No task found for topic partition", "topic_partition",
 					record.TopicPartition())
 				// TODO: Is this safe?
 				continue
@@ -108,13 +139,13 @@ func (r *SingleThreaded) Run(ctx context.Context) error {
 
 			if err := t.Process(record); err != nil {
 				// TODO: Error handling strategy
-				return fmt.Errorf("failed to process record: %w", err)
+				r.logger.Error("Failed to process record", "error", err)
 			}
 		}
 
 		r.committer.RecordProcessed(len(records))
 		if locked := r.committer.TryCommit(); locked {
-			r.logger.Log(logger.InfoLevel, "Committing offsets")
+			r.logger.Info("Committing offsets")
 			if err := r.commitOffsets(); err != nil {
 				r.committer.UnlockCommit(false)
 				return fmt.Errorf("failed to commit offsets: %w", err)

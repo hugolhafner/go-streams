@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/hugolhafner/go-streams/internal/kafka"
+	"github.com/hugolhafner/go-streams/kafka"
 	"github.com/hugolhafner/go-streams/logger"
 )
 
@@ -23,7 +23,7 @@ func (m *managerImpl) OnAssigned(partitions []kafka.TopicPartition) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	m.logger.Log(logger.DebugLevel, "Assigning partitions", "partitions", partitions)
+	m.logger.Debug("Assigning partitions", "partitions", partitions)
 
 	for _, p := range partitions {
 		if _, exists := m.tasks[p]; exists {

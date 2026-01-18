@@ -3,9 +3,9 @@ package runner
 import (
 	"context"
 
-	"github.com/hugolhafner/go-streams/internal/kafka"
-	"github.com/hugolhafner/go-streams/internal/task"
+	"github.com/hugolhafner/go-streams/kafka"
 	"github.com/hugolhafner/go-streams/logger"
+	"github.com/hugolhafner/go-streams/task"
 	"github.com/hugolhafner/go-streams/topology"
 )
 

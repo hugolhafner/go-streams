@@ -7,10 +7,10 @@ import (
 	"syscall"
 
 	"github.com/hugolhafner/go-streams"
-	"github.com/hugolhafner/go-streams/internal/kafka"
-	"github.com/hugolhafner/go-streams/internal/runner"
+	"github.com/hugolhafner/go-streams/kafka"
 	"github.com/hugolhafner/go-streams/kstream"
 	"github.com/hugolhafner/go-streams/plugins/zaplogger"
+	"github.com/hugolhafner/go-streams/runner"
 	"github.com/hugolhafner/go-streams/serde"
 	"go.uber.org/zap"
 )
@@ -53,7 +53,7 @@ func KgoComplete() {
 	t.PrintTree()
 
 	client, err := kafka.NewKgoClient(
-		kafka.WithLogger(klogger),
+		// kafka.WithLogger(klogger),
 		kafka.WithGroupID("example-kgo-complete"),
 		kafka.WithBootstrapServers([]string{"localhost:19092"}),
 	)

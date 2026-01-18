@@ -3,7 +3,7 @@ package task
 import (
 	"fmt"
 
-	"github.com/hugolhafner/go-streams/internal/kafka"
+	"github.com/hugolhafner/go-streams/kafka"
 	"github.com/hugolhafner/go-streams/logger"
 	"github.com/hugolhafner/go-streams/processor"
 	"github.com/hugolhafner/go-streams/topology"

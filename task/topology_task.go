@@ -3,7 +3,7 @@ package task
 import (
 	"fmt"
 
-	"github.com/hugolhafner/go-streams/internal/kafka"
+	"github.com/hugolhafner/go-streams/kafka"
 	"github.com/hugolhafner/go-streams/logger"
 	"github.com/hugolhafner/go-streams/processor"
 	"github.com/hugolhafner/go-streams/record"
@@ -44,7 +44,7 @@ func (t *TopologyTask) Process(rec kafka.ConsumerRecord) error {
 		return fmt.Errorf("deserialize value: %w", err)
 	}
 
-	t.logger.Log(logger.DebugLevel, "Processing record", "topic", rec.Topic, "partition", rec.Partition, "offset",
+	t.logger.Debug("Processing record", "topic", rec.Topic, "partition", rec.Partition, "offset",
 		rec.Offset)
 
 	untypedRec := record.NewUntyped(key, value, record.Metadata{
@@ -57,7 +57,7 @@ func (t *TopologyTask) Process(rec kafka.ConsumerRecord) error {
 
 	children := t.topology.Children(t.source.Name())
 	for _, childName := range children {
-		t.logger.Log(logger.DebugLevel, "Forwarding record to child node", "node", childName)
+		t.logger.Debug("Forwarding record to child node", "node", childName)
 		if err := t.processAt(childName, untypedRec); err != nil {
 			return err
 		}
@@ -73,17 +73,17 @@ func (t *TopologyTask) Process(rec kafka.ConsumerRecord) error {
 
 func (t *TopologyTask) processAt(nodeName string, rec *record.UntypedRecord) error {
 	if sink, ok := t.sinks[nodeName]; ok {
-		t.logger.Log(logger.DebugLevel, "Forwarding record to sink node", "node", nodeName)
+		t.logger.Debug("Forwarding record to sink node", "node", nodeName)
 		return sink.Process(rec)
 	}
 
 	proc, ok := t.processors[nodeName]
 	if !ok {
-		t.logger.Log(logger.ErrorLevel, "Unknown node", "node", nodeName)
+		t.logger.Error("Unknown node", "node", nodeName)
 		return fmt.Errorf("unknown node: %s", nodeName)
 	}
 
-	t.logger.Log(logger.DebugLevel, "Processing record at processor node", "node", nodeName)
+	t.logger.Debug("Processing record at processor node", "node", nodeName)
 	return proc.Process(rec)
 }
 

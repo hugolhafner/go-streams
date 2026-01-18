@@ -9,9 +9,17 @@ const (
 	ErrorLevel
 )
 
-type Logger interface {
+type Base interface {
 	Level() LogLevel
 	Log(level LogLevel, msg string, kv ...any)
+}
+
+type Logger interface {
+	Base
+	Debug(msg string, kv ...any)
+	Info(msg string, kv ...any)
+	Warn(msg string, kv ...any)
+	Error(msg string, kv ...any)
 }
 
 type NoopLogger struct{}
@@ -25,5 +33,5 @@ func (n *NoopLogger) Level() LogLevel {
 }
 
 func NewNoopLogger() Logger {
-	return &NoopLogger{}
+	return WrapLogger(&NoopLogger{})
 }
