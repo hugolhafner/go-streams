@@ -2,11 +2,11 @@ package examples
 
 import (
 	"context"
-	"log"
 
 	"github.com/hugolhafner/go-streams"
+	"github.com/hugolhafner/go-streams/internal/kafka"
+	"github.com/hugolhafner/go-streams/internal/runner"
 	"github.com/hugolhafner/go-streams/kstream"
-	"github.com/hugolhafner/go-streams/runner"
 	"github.com/hugolhafner/go-streams/serde"
 )
 
@@ -39,12 +39,20 @@ func BranchProcessor() {
 	t := builder.Build()
 	t.PrintTree()
 
-	app := streams.NewApplication(builder.Build(),
-		streams.WithApplicationID("example-order-processor"),
-		streams.WithBootstrapServers([]string{"localhost:9092"}),
-	)
+	client, err := kafka.NewKgoClient()
+	if err != nil {
+		panic(err)
+	}
 
-	if err := app.Run(context.Background(), runner.NewSingleThreadedRunner()); err != nil {
-		log.Fatal(err)
+	app, err := streams.NewApplication(
+		client,
+		builder.Build(),
+	)
+	if err != nil {
+		panic(err)
+	}
+
+	if err := app.RunWith(context.Background(), runner.NewSingleThreadedRunner()); err != nil {
+		panic(err)
 	}
 }

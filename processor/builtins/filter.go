@@ -20,10 +20,12 @@ func (p *FilterProcessor[K, V]) Init(ctx processor.Context[K, V]) {
 	p.ctx = ctx
 }
 
-func (p *FilterProcessor[K, V]) Process(r *record.Record[K, V]) {
+func (p *FilterProcessor[K, V]) Process(r *record.Record[K, V]) error {
 	if p.predicate(r.Key, r.Value) {
-		p.ctx.Forward(r)
+		return p.ctx.Forward(r)
 	}
+
+	return nil
 }
 
 func (p *FilterProcessor[K, V]) Close() error {

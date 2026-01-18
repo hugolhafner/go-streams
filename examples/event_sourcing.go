@@ -1,8 +1,12 @@
 package examples
 
 import (
+	"context"
 	"encoding/json"
 
+	"github.com/hugolhafner/go-streams"
+	"github.com/hugolhafner/go-streams/internal/kafka"
+	"github.com/hugolhafner/go-streams/internal/runner"
 	"github.com/hugolhafner/go-streams/kstream"
 	"github.com/hugolhafner/go-streams/serde"
 )
@@ -54,8 +58,9 @@ func EventSourcing() {
 		return data
 	})
 
-	kstream.ForEach(orderCreated, func(key []byte, data OrderCreatedData) {
+	kstream.ForEach(orderCreated, func(key []byte, data OrderCreatedData) error {
 		sendOrderCreatedEmail(data)
+		return nil
 	})
 
 	orderUpdatedBranch := branches.Get("order-updated")
@@ -66,8 +71,9 @@ func EventSourcing() {
 		return data
 	})
 
-	kstream.ForEach(orderUpdated, func(key []byte, data OrderUpdatedData) {
+	kstream.ForEach(orderUpdated, func(key []byte, data OrderUpdatedData) error {
 		processOrderUpdate(data)
+		return nil
 	})
 
 	kstream.To(kstream.Map(orderUpdated, func(key []byte, data OrderUpdatedData) ([]byte, []byte) {
@@ -79,4 +85,21 @@ func EventSourcing() {
 
 	t := builder.Build()
 	t.PrintTree()
+
+	client, err := kafka.NewKgoClient()
+	if err != nil {
+		panic(err)
+	}
+
+	app, err := streams.NewApplication(
+		client,
+		builder.Build(),
+	)
+	if err != nil {
+		panic(err)
+	}
+
+	if err := app.RunWith(context.Background(), runner.NewSingleThreadedRunner()); err != nil {
+		panic(err)
+	}
 }

@@ -22,9 +22,9 @@ func (p *MapProcessor[KIn, VIn, KOut, VOut]) Init(ctx processor.Context[KOut, VO
 	p.ctx = ctx
 }
 
-func (p *MapProcessor[KIn, VIn, KOut, VOut]) Process(r *record.Record[KIn, VIn]) {
+func (p *MapProcessor[KIn, VIn, KOut, VOut]) Process(r *record.Record[KIn, VIn]) error {
 	newK, newV := p.mapper(r.Key, r.Value)
-	p.ctx.Forward(&record.Record[KOut, VOut]{
+	return p.ctx.Forward(&record.Record[KOut, VOut]{
 		Key:      newK,
 		Value:    newV,
 		Metadata: r.Metadata,

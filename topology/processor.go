@@ -10,11 +10,6 @@ type ProcessorNode interface {
 	Supplier() processor.UntypedSupplier
 }
 
-type ProcessorContext interface {
-	Forward(record any)
-	ForwardTo(childName string, record any)
-}
-
 type SourceNode interface {
 	Node
 	Topic() string

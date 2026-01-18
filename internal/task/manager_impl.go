@@ -4,22 +4,26 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/hugolhafner/go-streams/runner/log"
+	"github.com/hugolhafner/go-streams/internal/kafka"
+	"github.com/hugolhafner/go-streams/logger"
 )
 
 var _ Manager = (*managerImpl)(nil)
 
 type managerImpl struct {
-	tasks    map[log.TopicPartition]Task
+	tasks    map[kafka.TopicPartition]Task
 	factory  Factory
-	producer log.Producer
+	producer kafka.Producer
 
-	mu sync.RWMutex
+	mu     sync.RWMutex
+	logger logger.Logger
 }
 
-func (m *managerImpl) OnAssigned(partitions []log.TopicPartition) error {
+func (m *managerImpl) OnAssigned(partitions []kafka.TopicPartition) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
+	m.logger.Log(logger.DebugLevel, "Assigning partitions", "partitions", partitions)
 
 	for _, p := range partitions {
 		if _, exists := m.tasks[p]; exists {
@@ -43,7 +47,7 @@ func (m *managerImpl) OnAssigned(partitions []log.TopicPartition) error {
 	return nil
 }
 
-func (m *managerImpl) OnRevoked(partitions []log.TopicPartition) error {
+func (m *managerImpl) OnRevoked(partitions []kafka.TopicPartition) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -63,11 +67,11 @@ func (m *managerImpl) OnRevoked(partitions []log.TopicPartition) error {
 	return lastErr
 }
 
-func (m *managerImpl) Tasks() map[log.TopicPartition]Task {
+func (m *managerImpl) Tasks() map[kafka.TopicPartition]Task {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	copied := make(map[log.TopicPartition]Task, len(m.tasks))
+	copied := make(map[kafka.TopicPartition]Task, len(m.tasks))
 	for k, v := range m.tasks {
 		copied[k] = v
 	}
@@ -75,7 +79,7 @@ func (m *managerImpl) Tasks() map[log.TopicPartition]Task {
 	return copied
 }
 
-func (m *managerImpl) TaskFor(partition log.TopicPartition) (Task, bool) {
+func (m *managerImpl) TaskFor(partition kafka.TopicPartition) (Task, bool) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
@@ -83,11 +87,11 @@ func (m *managerImpl) TaskFor(partition log.TopicPartition) (Task, bool) {
 	return task, exists
 }
 
-func (m *managerImpl) GetCommitOffsets() map[log.TopicPartition]int64 {
+func (m *managerImpl) GetCommitOffsets() map[kafka.TopicPartition]kafka.Offset {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	offsets := make(map[log.TopicPartition]int64)
+	offsets := make(map[kafka.TopicPartition]kafka.Offset)
 	for p, task := range m.tasks {
 		offsets[p] = task.CurrentOffset()
 	}
@@ -110,10 +114,11 @@ func (m *managerImpl) Close() error {
 	return lastErr
 }
 
-func NewManager(factory Factory, producer log.Producer) Manager {
+func NewManager(factory Factory, producer kafka.Producer, logger logger.Logger) Manager {
 	return &managerImpl{
-		tasks:    make(map[log.TopicPartition]Task),
+		tasks:    make(map[kafka.TopicPartition]Task),
 		factory:  factory,
 		producer: producer,
+		logger:   logger,
 	}
 }

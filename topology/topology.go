@@ -2,6 +2,9 @@ package topology
 
 import (
 	"fmt"
+
+	"github.com/hugolhafner/go-streams/processor"
+	"github.com/hugolhafner/go-streams/serde"
 )
 
 type Topology struct {
@@ -12,13 +15,81 @@ type Topology struct {
 	sinks      []string
 }
 
-func NewTopology() *Topology {
+func New() *Topology {
 	return &Topology{
 		nodes:      make(map[string]Node),
 		edges:      make(map[string][]string),
 		namedEdges: make(map[string]map[string]string),
 		sources:    []string{},
 		sinks:      []string{},
+	}
+}
+
+func (t *Topology) AddSource(name, topic string, keySerde serde.UntypedDeserialiser,
+	valueSerde serde.UntypedDeserialiser) *Topology {
+	t.AddNode(&sourceNode{
+		name:       name,
+		topic:      topic,
+		keySerde:   keySerde,
+		valueSerde: valueSerde,
+	})
+
+	return t
+}
+
+func (t *Topology) AddProcessor(name string, supplier processor.UntypedSupplier, parents ...string) *Topology {
+	t.AddNode(&processorNode{
+		name:     name,
+		supplier: supplier,
+	}, parents...)
+
+	return t
+}
+
+func (t *Topology) AddSink(name, topic string, keySerde serde.UntypedSerialiser, valueSerde serde.UntypedSerialiser,
+	parents ...string) *Topology {
+	t.AddNode(&sinkNode{
+		name:       name,
+		topic:      topic,
+		keySerde:   keySerde,
+		valueSerde: valueSerde,
+	}, parents...)
+
+	return t
+}
+
+func (t *Topology) AddProcessorWithChildName(
+	name string,
+	supplier processor.UntypedSupplier,
+	parent string,
+	childName string,
+) *Topology {
+	t.AddNode(&processorNode{
+		name:     name,
+		supplier: supplier,
+	}, parent)
+
+	if t.namedEdges[parent] == nil {
+		t.namedEdges[parent] = make(map[string]string)
+	}
+	t.namedEdges[parent][childName] = name
+
+	return t
+}
+
+func (t *Topology) AddNode(node Node, parents ...string) {
+	t.nodes[node.Name()] = node
+
+	switch node.Type() {
+	case NodeTypeSource:
+		t.sources = append(t.sources, node.Name())
+	case NodeTypeSink:
+		t.sinks = append(t.sinks, node.Name())
+	default:
+	}
+
+	for _, parent := range parents {
+		t.edges[parent] = append(t.edges[parent], node.Name())
 	}
 }
 
@@ -29,6 +100,18 @@ func (t *Topology) GetNode(name string) (Node, bool) {
 
 func (t *Topology) Nodes() map[string]Node {
 	return t.nodes
+}
+
+func (t *Topology) NamedEdges(parent string) map[string]string {
+	if named, ok := t.namedEdges[parent]; ok {
+		result := make(map[string]string, len(named))
+		for k, v := range named {
+			result[k] = v
+		}
+		return result
+	}
+
+	return nil
 }
 
 func (t *Topology) Children(parent string) []string {

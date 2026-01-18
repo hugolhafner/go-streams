@@ -6,7 +6,7 @@ import (
 
 type Processor[KIn, VIn, KOut, VOut any] interface {
 	Init(ctx Context[KOut, VOut])
-	Process(record *record.Record[KIn, VIn])
+	Process(record *record.Record[KIn, VIn]) error
 	Close() error
 }
 
@@ -17,11 +17,11 @@ type UntypedProcessor interface {
 }
 
 type UntypedContext interface {
-	Forward(record *record.UntypedRecord)
-	ForwardTo(childName string, record *record.UntypedRecord)
+	Forward(record *record.UntypedRecord) error
+	ForwardTo(childName string, record *record.UntypedRecord) error
 }
 
 type Context[K, V any] interface {
-	Forward(record *record.Record[K, V])
-	ForwardTo(childName string, record *record.Record[K, V])
+	Forward(record *record.Record[K, V]) error
+	ForwardTo(childName string, record *record.Record[K, V]) error
 }

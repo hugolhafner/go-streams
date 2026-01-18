@@ -62,7 +62,7 @@ func (p *PeriodicCommitter) RecordProcessed(count int) {
 func (p *PeriodicCommitter) TryCommit() bool {
 	p.mu.Lock()
 
-	should := p.count >= p.c.MaxCount || time.Since(p.lastCommit) >= p.c.MaxInterval
+	should := (p.count > 0) && (p.count >= p.c.MaxCount || time.Since(p.lastCommit) >= p.c.MaxInterval)
 	if !should {
 		p.mu.Unlock()
 		return false

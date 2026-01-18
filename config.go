@@ -1,27 +1,23 @@
 package streams
 
+import (
+	"github.com/hugolhafner/go-streams/logger"
+)
+
 type Config struct {
-	ApplicationID    string
-	BootstrapServers []string
+	Logger logger.Logger
 }
 
 type ConfigOption func(*Config)
 
-func WithApplicationID(id string) ConfigOption {
+func WithLogger(logger logger.Logger) ConfigOption {
 	return func(c *Config) {
-		c.ApplicationID = id
-	}
-}
-
-func WithBootstrapServers(servers []string) ConfigOption {
-	return func(c *Config) {
-		c.BootstrapServers = servers
+		c.Logger = logger
 	}
 }
 
 func defaultConfig() Config {
 	return Config{
-		ApplicationID:    "go-streams-app",
-		BootstrapServers: []string{"localhost:9092"},
+		Logger: logger.NewNoopLogger(),
 	}
 }
