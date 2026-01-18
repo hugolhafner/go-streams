@@ -24,16 +24,20 @@ type OrderSummary struct {
 func BasicMap() {
 	builder := kstream.NewStreamsBuilder()
 	parsed := kstream.StreamWithValueSerde(builder, "orders", serde.JSON[Order]())
-	valid := kstream.Filter(parsed, func(k []byte, v Order) bool {
-		return v.ID != "" && v.Amount > 0
-	})
+	valid := kstream.Filter(
+		parsed, func(k []byte, v Order) bool {
+			return v.ID != "" && v.Amount > 0
+		},
+	)
 
-	summary := kstream.Map(valid, func(k []byte, v Order) (string, OrderSummary) {
-		return v.UserID, OrderSummary{
-			OrderID: v.ID,
-			Amount:  v.Amount,
-		}
-	})
+	summary := kstream.Map(
+		valid, func(k []byte, v Order) (string, OrderSummary) {
+			return v.UserID, OrderSummary{
+				OrderID: v.ID,
+				Amount:  v.Amount,
+			}
+		},
+	)
 
 	kstream.ToWithSerde(summary, "order-summaries", serde.String(), serde.JSON[OrderSummary]())
 	t := builder.Build()

@@ -36,8 +36,10 @@ func NewSingleThreadedRunner(
 		opt(&config)
 	}
 
-	return func(t *topology.Topology, f task.Factory, consumer kafka.Consumer, producer kafka.Producer,
-		logger logger.Logger) (Runner, error) {
+	return func(
+		t *topology.Topology, f task.Factory, consumer kafka.Consumer, producer kafka.Producer,
+		logger logger.Logger,
+	) (Runner, error) {
 		return &SingleThreaded{
 			consumer:    consumer,
 			producer:    producer,
@@ -81,32 +83,6 @@ func (r *SingleThreaded) commitOffsets() error {
 	return r.consumer.Commit(offsets)
 }
 
-func (r *SingleThreaded) poll(ctx context.Context) ([]kafka.ConsumerRecord, error) {
-	r.logger.Debug("Polling for records")
-
-	var attempt uint = 1
-	for {
-		records, err := r.consumer.Poll(ctx)
-		if err != nil {
-			if ctx.Err() != nil {
-				return nil, ctx.Err()
-			}
-
-			wait := r.pollBackoff.Next(attempt)
-			attempt++
-
-			r.logger.Error("Failed to poll records", "error", err, "attempt", attempt, "backoff",
-				wait.String())
-
-			time.Sleep(wait)
-			continue
-		}
-
-		r.logger.Debug("Received records", "count", len(records))
-		return records, nil
-	}
-}
-
 func (r *SingleThreaded) Run(ctx context.Context) error {
 	topics := r.sourceTopics()
 	if err := r.consumer.Subscribe(topics, r.taskManager); err != nil {
@@ -121,8 +97,8 @@ func (r *SingleThreaded) Run(ctx context.Context) error {
 			return nil
 		default:
 		}
-
-		records, err := r.poll(ctx)
+		
+		records, err := r.consumer.Poll(ctx)
 		if err != nil {
 			return fmt.Errorf("failed to poll: %w", err)
 		}
@@ -131,8 +107,9 @@ func (r *SingleThreaded) Run(ctx context.Context) error {
 			t, ok := r.taskManager.TaskFor(record.TopicPartition())
 			if !ok {
 				r.logger.Warn(
-				"No task found for topic partition", "topic_partition",
-					record.TopicPartition())
+					"No task found for topic partition", "topic_partition",
+					record.TopicPartition(),
+				)
 				// TODO: Is this safe?
 				continue
 			}

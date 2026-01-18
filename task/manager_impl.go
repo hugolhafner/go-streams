@@ -37,7 +37,7 @@ func (m *managerImpl) OnAssigned(partitions []kafka.TopicPartition) error {
 				_ = t.Close()
 				delete(m.tasks, tp)
 			}
-
+			
 			return fmt.Errorf("create task: %w", err)
 		}
 

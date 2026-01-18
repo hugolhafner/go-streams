@@ -44,16 +44,20 @@ func (t *TopologyTask) Process(rec kafka.ConsumerRecord) error {
 		return fmt.Errorf("deserialize value: %w", err)
 	}
 
-	t.logger.Debug("Processing record", "topic", rec.Topic, "partition", rec.Partition, "offset",
-		rec.Offset)
+	t.logger.Debug(
+		"Processing record", "topic", rec.Topic, "partition", rec.Partition, "offset",
+		rec.Offset,
+	)
 
-	untypedRec := record.NewUntyped(key, value, record.Metadata{
-		Topic:     rec.Topic,
-		Partition: rec.Partition,
-		Offset:    rec.Offset,
-		Timestamp: rec.Timestamp,
-		Headers:   rec.Headers,
-	})
+	untypedRec := record.NewUntyped(
+		key, value, record.Metadata{
+			Topic:     rec.Topic,
+			Partition: rec.Partition,
+			Offset:    rec.Offset,
+			Timestamp: rec.Timestamp,
+			Headers:   rec.Headers,
+		},
+	)
 
 	children := t.topology.Children(t.source.Name())
 	for _, childName := range children {

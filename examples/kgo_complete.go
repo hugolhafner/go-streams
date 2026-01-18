@@ -23,7 +23,7 @@ func filterInvalidOrders(k []byte, v Order) bool {
 	} else {
 		zap.L().Debug("Valid order", zap.String("key", string(k)), zap.Any("value", v))
 	}
-
+	
 	return keep
 }
 

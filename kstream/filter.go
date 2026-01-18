@@ -23,7 +23,9 @@ func Filter[K, V any](s KStream[K, V], predicate func(K, V) bool) KStream[K, V] 
 
 // FilterNot returns a KStream containing only records that do NOT match the predicate
 func FilterNot[K, V any](s KStream[K, V], predicate func(K, V) bool) KStream[K, V] {
-	return Filter(s, func(k K, v V) bool {
-		return !predicate(k, v)
-	})
+	return Filter(
+		s, func(k K, v V) bool {
+			return !predicate(k, v)
+		},
+	)
 }

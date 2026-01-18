@@ -13,9 +13,11 @@ type ZapLogger struct {
 }
 
 func New(l *zap.Logger) logger.Logger {
-	return logger.WrapLogger(&ZapLogger{
-		l,
-	})
+	return logger.WrapLogger(
+		&ZapLogger{
+			l,
+		},
+	)
 }
 
 func (z *ZapLogger) Level() logger.LogLevel {

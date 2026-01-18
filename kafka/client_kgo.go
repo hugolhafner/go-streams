@@ -174,8 +174,10 @@ func (k *KgoClient) Commit(offsets map[TopicPartition]Offset) error {
 			Epoch:  offset.LeaderEpoch,
 		}
 
-		k.logger.Info("Preparing to commit offset", "topic", tp.Topic, "partition", tp.Partition,
-			"offset", offset.Offset)
+		k.logger.Info(
+			"Preparing to commit offset", "topic", tp.Topic, "partition", tp.Partition,
+			"offset", offset.Offset,
+		)
 	}
 
 	onDoneCh := make(chan error)
@@ -252,10 +254,12 @@ func convertFromKgoHeaders(headers []kgo.RecordHeader) map[string][]byte {
 func convertToKgoHeaders(headers map[string][]byte) []kgo.RecordHeader {
 	kgoHeaders := make([]kgo.RecordHeader, 0, len(headers))
 	for k, v := range headers {
-		kgoHeaders = append(kgoHeaders, kgo.RecordHeader{
-			Key:   k,
-			Value: v,
-		})
+		kgoHeaders = append(
+			kgoHeaders, kgo.RecordHeader{
+				Key:   k,
+				Value: v,
+			},
+		)
 	}
 
 	return kgoHeaders
@@ -265,10 +269,12 @@ func mapToTopicPartitions(m map[string][]int32) []TopicPartition {
 	var tps []TopicPartition
 	for topic, partitions := range m {
 		for _, partition := range partitions {
-			tps = append(tps, TopicPartition{
-				Topic:     topic,
-				Partition: partition,
-			})
+			tps = append(
+				tps, TopicPartition{
+					Topic:     topic,
+					Partition: partition,
+				},
+			)
 		}
 	}
 

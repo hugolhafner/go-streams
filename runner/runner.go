@@ -13,5 +13,7 @@ type Runner interface {
 	Run(ctx context.Context) error
 }
 
-type Factory = func(t *topology.Topology, f task.Factory, consumer kafka.Consumer, producer kafka.Producer,
-	logger logger.Logger) (Runner, error)
+type Factory = func(
+	t *topology.Topology, f task.Factory, consumer kafka.Consumer, producer kafka.Producer,
+	logger logger.Logger,
+) (Runner, error)
