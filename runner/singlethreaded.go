@@ -66,12 +66,9 @@ func (r *SingleThreaded) sourceTopics() []string {
 
 func (r *SingleThreaded) shutdown() {
 	r.committer.Close()
-	if err := r.commitOffsets(); err != nil {
-		r.logger.Error("Failed to commit offsets during shutdown", "error", err)
-	}
 }
 
-func (r *SingleThreaded) commitOffsets() error {
+func (r *SingleThreaded) commitOffsets(_ context.Context) error {
 	offsets := r.taskManager.GetCommitOffsets()
 	if len(offsets) == 0 {
 		return nil
@@ -103,11 +100,7 @@ func (r *SingleThreaded) runCommitLoop() {
 
 		r.logger.Debug("Committing offsets")
 
-		if err := retry.Do(
-			context.Background(), rp, func(ctx context.Context) error {
-				return r.commitOffsets()
-			},
-		); err != nil {
+		if err := retry.Do(context.Background(), rp, r.commitOffsets); err != nil {
 			r.logger.Error("Failed to commit offsets", "error", err)
 		}
 	}
