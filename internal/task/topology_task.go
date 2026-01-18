@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/hugolhafner/go-streams/internal/kafka"
+	"github.com/hugolhafner/go-streams/logger"
 	"github.com/hugolhafner/go-streams/processor"
 	"github.com/hugolhafner/go-streams/record"
 	"github.com/hugolhafner/go-streams/topology"
@@ -12,14 +13,16 @@ import (
 var _ Task = (*TopologyTask)(nil)
 
 type TopologyTask struct {
-	partition kafka.TopicPartition
-	source    topology.SourceNode
+	partition  kafka.TopicPartition
+	source     topology.SourceNode
 	processors map[string]processor.UntypedProcessor
 	contexts   map[string]*nodeContext
-	sinks     map[string]*sinkHandler
-	producer  kafka.Producer
-	offset    kafka.Offset
-	topology  *topology.Topology
+	sinks      map[string]*sinkHandler
+	producer   kafka.Producer
+	offset     kafka.Offset
+	topology   *topology.Topology
+
+	logger logger.Logger
 }
 
 func (t *TopologyTask) Partition() kafka.TopicPartition {
@@ -41,9 +44,8 @@ func (t *TopologyTask) Process(rec kafka.ConsumerRecord) error {
 		return fmt.Errorf("deserialize value: %w", err)
 	}
 
-	fmt.Println("TopologyTask processing record from topic:", rec.Topic, "partition:", rec.Partition, "offset:",
+	t.logger.Log(logger.DebugLevel, "Processing record", "topic", rec.Topic, "partition", rec.Partition, "offset",
 		rec.Offset)
-	fmt.Println(string(rec.Value))
 
 	untypedRec := record.NewUntyped(key, value, record.Metadata{
 		Topic:     rec.Topic,
@@ -55,7 +57,7 @@ func (t *TopologyTask) Process(rec kafka.ConsumerRecord) error {
 
 	children := t.topology.Children(t.source.Name())
 	for _, childName := range children {
-		fmt.Println("Processing child node:", childName)
+		t.logger.Log(logger.DebugLevel, "Forwarding record to child node", "node", childName)
 		if err := t.processAt(childName, untypedRec); err != nil {
 			return err
 		}
@@ -70,18 +72,18 @@ func (t *TopologyTask) Process(rec kafka.ConsumerRecord) error {
 }
 
 func (t *TopologyTask) processAt(nodeName string, rec *record.UntypedRecord) error {
-	fmt.Println("Processing at node:", nodeName)
 	if sink, ok := t.sinks[nodeName]; ok {
-		fmt.Println("Processing sink node:", nodeName)
+		t.logger.Log(logger.DebugLevel, "Forwarding record to sink node", "node", nodeName)
 		return sink.Process(rec)
 	}
 
 	proc, ok := t.processors[nodeName]
-	fmt.Println("Processing processor node:", nodeName)
 	if !ok {
+		t.logger.Log(logger.ErrorLevel, "Unknown node", "node", nodeName)
 		return fmt.Errorf("unknown node: %s", nodeName)
 	}
 
+	t.logger.Log(logger.DebugLevel, "Processing record at processor node", "node", nodeName)
 	return proc.Process(rec)
 }
 

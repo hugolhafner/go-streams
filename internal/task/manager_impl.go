@@ -5,6 +5,7 @@ import (
 	"sync"
 
 	"github.com/hugolhafner/go-streams/internal/kafka"
+	"github.com/hugolhafner/go-streams/logger"
 )
 
 var _ Manager = (*managerImpl)(nil)
@@ -14,14 +15,15 @@ type managerImpl struct {
 	factory  Factory
 	producer kafka.Producer
 
-	mu sync.RWMutex
+	mu     sync.RWMutex
+	logger logger.Logger
 }
 
 func (m *managerImpl) OnAssigned(partitions []kafka.TopicPartition) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	fmt.Println(partitions)
+	m.logger.Log(logger.DebugLevel, "Assigning partitions", "partitions", partitions)
 
 	for _, p := range partitions {
 		if _, exists := m.tasks[p]; exists {
@@ -41,8 +43,6 @@ func (m *managerImpl) OnAssigned(partitions []kafka.TopicPartition) error {
 
 		m.tasks[p] = task
 	}
-
-	fmt.Println(m.tasks)
 
 	return nil
 }
@@ -114,10 +114,11 @@ func (m *managerImpl) Close() error {
 	return lastErr
 }
 
-func NewManager(factory Factory, producer kafka.Producer) Manager {
+func NewManager(factory Factory, producer kafka.Producer, logger logger.Logger) Manager {
 	return &managerImpl{
 		tasks:    make(map[kafka.TopicPartition]Task),
 		factory:  factory,
 		producer: producer,
+		logger:   logger,
 	}
 }

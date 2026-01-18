@@ -5,7 +5,6 @@ go 1.25.4
 require (
 	github.com/twmb/franz-go v1.20.6
 	github.com/twmb/franz-go/pkg/kmsg v1.12.0
-	github.com/twmb/franz-go/plugin/kzap v1.1.2
 	go.uber.org/zap v1.24.0
 	google.golang.org/protobuf v1.33.0
 )

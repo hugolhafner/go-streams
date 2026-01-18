@@ -7,10 +7,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/hugolhafner/go-streams/logger"
 	"github.com/twmb/franz-go/pkg/kgo"
 	"github.com/twmb/franz-go/pkg/kmsg"
-	"github.com/twmb/franz-go/plugin/kzap"
-	"go.uber.org/zap"
 )
 
 var _ Client = (*KgoClient)(nil)
@@ -21,6 +20,8 @@ type KgoClientConfig struct {
 	SessionTimeout    time.Duration
 	HeartbeatInterval time.Duration
 	MaxPollRecords    int
+
+	Logger logger.Logger
 }
 
 func defaultConfig() KgoClientConfig {
@@ -30,6 +31,7 @@ func defaultConfig() KgoClientConfig {
 		SessionTimeout:    30 * time.Second,
 		HeartbeatInterval: 10 * time.Second,
 		MaxPollRecords:    100,
+		Logger:            logger.NewNoopLogger(),
 	}
 }
 
@@ -47,6 +49,12 @@ func WithGroupID(id string) KgoOption {
 	}
 }
 
+func WithLogger(l logger.Logger) KgoOption {
+	return func(cfg *KgoClientConfig) {
+		cfg.Logger = l
+	}
+}
+
 type KgoClient struct {
 	client *kgo.Client
 	config KgoClientConfig
@@ -55,6 +63,8 @@ type KgoClient struct {
 	subscribed  bool
 	rebalanceCb RebalanceCallback
 	topics      []string
+
+	logger logger.Logger
 }
 
 func NewKgoClient(opts ...KgoOption) (*KgoClient, error) {
@@ -63,7 +73,7 @@ func NewKgoClient(opts ...KgoOption) (*KgoClient, error) {
 		opt(&cfg)
 	}
 
-	kc := &KgoClient{config: cfg}
+	kc := &KgoClient{config: cfg, logger: cfg.Logger}
 
 	kgoOpts := []kgo.Opt{
 		kgo.SeedBrokers(cfg.BootstrapServers...),
@@ -71,8 +81,7 @@ func NewKgoClient(opts ...KgoOption) (*KgoClient, error) {
 		kgo.DisableAutoCommit(),
 		kgo.OnPartitionsAssigned(kc.onAssigned),
 		kgo.OnPartitionsRevoked(kc.onRevoked),
-		// TODO: Config this
-		kgo.WithLogger(kzap.New(zap.L())),
+		kgo.WithLogger(newKgoLogger(kc.logger)),
 		// TODO: Metrics support
 		// TODO: Support for block rebalance on poll
 		// kgo.BlockRebalanceOnPoll(),
@@ -100,8 +109,7 @@ func (k *KgoClient) onAssigned(ctx context.Context, c *kgo.Client, assigned map[
 	partitions := mapToTopicPartitions(assigned)
 	err := cb.OnAssigned(partitions)
 	if err != nil {
-		// TODO: Proper error handling
-		fmt.Println("Error in OnAssigned callback:", err)
+		k.logger.Log(logger.ErrorLevel, "Error in OnAssigned callback:", "error", err)
 	}
 }
 
@@ -117,7 +125,7 @@ func (k *KgoClient) onRevoked(ctx context.Context, c *kgo.Client, revoked map[st
 	partitions := mapToTopicPartitions(revoked)
 	err := cb.OnRevoked(partitions)
 	if err != nil {
-		fmt.Println("Error in OnRevoked callback:", err)
+		k.logger.Log(logger.ErrorLevel, "Error in OnRevoked callback:", "error", err)
 	}
 }
 
@@ -165,8 +173,8 @@ func (k *KgoClient) Commit(offsets map[TopicPartition]Offset) error {
 			Epoch:  offset.LeaderEpoch,
 		}
 
-		fmt.Println("Preparing to commit offset for topic:", tp.Topic, "partition:", tp.Partition, "offset:",
-			offset.Offset)
+		k.logger.Log(logger.InfoLevel, "Preparing to commit offset", "topic", tp.Topic, "partition", tp.Partition,
+			"offset", offset.Offset)
 	}
 
 	onDoneCh := make(chan error)
@@ -177,9 +185,8 @@ func (k *KgoClient) Commit(offsets map[TopicPartition]Offset) error {
 	k.client.CommitOffsets(context.Background(), toCommit, onDone)
 	err := <-onDoneCh
 
-	fmt.Println("Commit offsets error:", err)
-
 	if err != nil {
+		k.logger.Log(logger.ErrorLevel, "Committing offsets error", "error", err)
 		return fmt.Errorf("commit offsets: %w", err)
 	}
 
@@ -194,7 +201,7 @@ func (k *KgoClient) Send(ctx context.Context, topic string, key, value []byte, h
 		Headers: convertToKgoHeaders(headers),
 	}
 
-	fmt.Println("Sending record to topic:", topic, "key:", string(key), "value:", string(value))
+	k.logger.Log(logger.InfoLevel, "Sending record", "topic", topic, "key", string(key), "value", string(value))
 
 	results := k.client.ProduceSync(ctx, record)
 	return results.FirstErr()
@@ -217,8 +224,6 @@ func (k *KgoClient) Close() {
 func convertRecords(records []*kgo.Record) []ConsumerRecord {
 	converted := make([]ConsumerRecord, len(records))
 	for i, r := range records {
-		fmt.Println("Converting record from topic:", r.Topic, "partition:", r.Partition, "offset:", r.Offset)
-		fmt.Println(string(r.Value))
 		converted[i] = ConsumerRecord{
 			Topic:       r.Topic,
 			Partition:   r.Partition,

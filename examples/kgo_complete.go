@@ -16,6 +16,24 @@ import (
 )
 
 // {"id": "order1", "amount": 100.0, "user_id": "user1"}
+func filterInvalidOrders(k []byte, v Order) bool {
+	keep := v.ID != "" && v.Amount > 0
+	if !keep {
+		zap.L().Warn("Invalid order", zap.String("key", string(k)), zap.Any("value", v))
+	} else {
+		zap.L().Debug("Valid order", zap.String("key", string(k)), zap.Any("value", v))
+	}
+
+	return keep
+}
+
+func processOrder(k []byte, v Order) (string, OrderSummary) {
+	zap.L().Debug("Processing order", zap.String("key", string(k)), zap.Any("value", v))
+	return v.UserID, OrderSummary{
+		OrderID: v.ID,
+		Amount:  v.Amount,
+	}
+}
 
 func KgoComplete() {
 	l, err := zap.NewDevelopment()
@@ -23,33 +41,19 @@ func KgoComplete() {
 		panic(err)
 	}
 	zap.ReplaceGlobals(l)
+	klogger := zaplogger.New(l)
 
 	builder := kstream.NewStreamsBuilder()
 	parsed := kstream.StreamWithValueSerde(builder, "example-kgo-complete-input", serde.JSON[Order]())
-	valid := kstream.Filter(parsed, func(k []byte, v Order) bool {
-		keep := v.ID != "" && v.Amount > 0
-		if !keep {
-			l.Warn("Invalid order", zap.String("key", string(k)), zap.Any("value", v))
-		} else {
-			l.Debug("Valid order", zap.String("key", string(k)), zap.Any("value", v))
-		}
-
-		return keep
-	})
-
-	summary := kstream.Map(valid, func(k []byte, v Order) (string, OrderSummary) {
-		l.Debug("Processing order", zap.String("key", string(k)), zap.Any("value", v))
-		return v.UserID, OrderSummary{
-			OrderID: v.ID,
-			Amount:  v.Amount,
-		}
-	})
-
+	valid := kstream.Filter(parsed, filterInvalidOrders)
+	summary := kstream.Map(valid, processOrder)
 	kstream.ToWithSerde(summary, "example-kgo-complete-output", serde.String(), serde.JSON[OrderSummary]())
+
 	t := builder.Build()
 	t.PrintTree()
 
 	client, err := kafka.NewKgoClient(
+		kafka.WithLogger(klogger),
 		kafka.WithGroupID("example-kgo-complete"),
 		kafka.WithBootstrapServers([]string{"localhost:19092"}),
 	)
@@ -62,9 +66,7 @@ func KgoComplete() {
 	app, err := streams.NewApplication(
 		client,
 		builder.Build(),
-		streams.WithApplicationID("example-order-processor"),
-		streams.WithBootstrapServers([]string{"localhost:19092"}),
-		streams.WithLogger(zaplogger.New(l)),
+		streams.WithLogger(klogger),
 	)
 	if err != nil {
 		panic(err)

@@ -94,8 +94,6 @@ func EventSourcing() {
 	app, err := streams.NewApplication(
 		client,
 		builder.Build(),
-		streams.WithApplicationID("example-order-processor"),
-		streams.WithBootstrapServers([]string{"localhost:9092"}),
 	)
 	if err != nil {
 		panic(err)

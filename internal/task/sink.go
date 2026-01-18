@@ -16,7 +16,6 @@ type sinkHandler struct {
 
 func (s *sinkHandler) Process(rec *record.UntypedRecord) error {
 	topic := s.node.Topic()
-	fmt.Println("Producing record to topic:", topic)
 
 	key, err := s.node.KeySerde().Serialise(topic, rec.Key)
 	if err != nil {

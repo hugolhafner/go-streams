@@ -9,6 +9,7 @@ import (
 	"github.com/hugolhafner/go-streams/internal/kafka"
 	"github.com/hugolhafner/go-streams/internal/runner"
 	"github.com/hugolhafner/go-streams/internal/task"
+	"github.com/hugolhafner/go-streams/logger"
 	"github.com/hugolhafner/go-streams/topology"
 )
 
@@ -22,7 +23,7 @@ type Application struct {
 	config   Config
 
 	client kafka.Client
-	logger Logger
+	logger logger.Logger
 
 	mu        sync.Mutex
 	running   bool
@@ -60,12 +61,12 @@ func (a *Application) RunWith(ctx context.Context, factory runner.Factory) error
 	}
 	defer a.Close()
 
-	taskFactory, err := task.NewTopologyTaskFactory(a.topology)
+	taskFactory, err := task.NewTopologyTaskFactory(a.topology, a.logger)
 	if err != nil {
 		return fmt.Errorf("failed to create task factory: %w", err)
 	}
 
-	r, err := factory(a.topology, taskFactory, a.client, a.client)
+	r, err := factory(a.topology, taskFactory, a.client, a.client, a.logger)
 	if err != nil {
 		return fmt.Errorf("failed to create runner: %w", err)
 	}
@@ -90,11 +91,6 @@ func (a *Application) Close() {
 	a.closeOnce.Do(func() {
 		a.mu.Lock()
 		defer a.mu.Unlock()
-
-		// TODO: Close runner
-		// if a.running && a.runner != nil {
-		// a.runner.Close()
-		// }
 
 		a.running = false
 		close(a.closedCh)
