@@ -6,7 +6,7 @@ require (
 	github.com/hugolhafner/dskit v0.3.1
 	github.com/twmb/franz-go v1.20.6
 	github.com/twmb/franz-go/pkg/kmsg v1.12.0
-	go.uber.org/zap v1.24.0
+	go.uber.org/zap v1.27.1
 	google.golang.org/protobuf v1.36.11
 )
 
@@ -20,6 +20,5 @@ require (
 	go.opentelemetry.io/otel v1.39.0 // indirect
 	go.opentelemetry.io/otel/metric v1.39.0 // indirect
 	go.opentelemetry.io/otel/trace v1.39.0 // indirect
-	go.uber.org/atomic v1.10.0 // indirect
 	go.uber.org/multierr v1.10.0 // indirect
 )
