@@ -16,11 +16,11 @@ func NewMockContext[K, V any]() *MockContext[K, V] {
 }
 
 func (c *MockContext[K, V]) Forward(record *record.Record[K, V]) error {
-	args := c.Mock.Called(record)
+	args := c.Called(record)
 	return args.Error(0)
 }
 
 func (c *MockContext[K, V]) ForwardTo(childName string, record *record.Record[K, V]) error {
-	args := c.Mock.Called(childName, record)
+	args := c.Called(childName, record)
 	return args.Error(0)
 }
