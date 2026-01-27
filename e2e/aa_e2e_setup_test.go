@@ -1,3 +1,5 @@
+//go:build e2e
+
 package e2e
 
 import (
@@ -9,10 +11,20 @@ import (
 	"testing"
 	"time"
 
+	"github.com/hugolhafner/go-streams/committer"
+	"github.com/hugolhafner/go-streams/kafka"
+	"github.com/hugolhafner/go-streams/runner"
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go/modules/redpanda"
 	"github.com/twmb/franz-go/pkg/kadm"
 	"github.com/twmb/franz-go/pkg/kgo"
+)
+
+const (
+	startupWait  = 2 * time.Second
+	shutdownWait = 10 * time.Second
+	consumeWait  = 30 * time.Second
+	eventualWait = 15 * time.Second
 )
 
 var (
@@ -71,8 +83,7 @@ func ensureContainer(t *testing.T) string {
 }
 
 func testTopicName(t *testing.T, suffix string) string {
-	const prefix = "e2e-test-"
-	return fmt.Sprintf("%s%s-%d", prefix, suffix, time.Now().UnixNano())
+	return fmt.Sprintf("e2e-test-%s-%d", suffix, time.Now().UnixNano())
 }
 
 func testGroupID(t *testing.T, suffix string) string {
@@ -110,7 +121,6 @@ func createTopics(t *testing.T, broker string, numPartitions int32, topics ...st
 
 			cleanupClient, err := kgo.NewClient(kgo.SeedBrokers(broker))
 			if err != nil {
-				t.Logf("cleanup: failed to create client: %v", err)
 				return
 			}
 			defer cleanupClient.Close()
@@ -118,6 +128,40 @@ func createTopics(t *testing.T, broker string, numPartitions int32, topics ...st
 			cleanupAdmin := kadm.NewClient(cleanupClient)
 			_, _ = cleanupAdmin.DeleteTopics(cleanupCtx, topics...)
 		},
+	)
+}
+
+func aggressiveCommitter() runner.SingleThreadedOption {
+	return runner.WithCommitter(
+		func() committer.Committer {
+			return committer.NewPeriodicCommitter(
+				committer.WithMaxInterval(500*time.Millisecond),
+				committer.WithMaxCount(1),
+			)
+		},
+	)
+}
+
+func waitForShutdown(t *testing.T, errCh <-chan error, timeout time.Duration) {
+	t.Helper()
+
+	select {
+	case err := <-errCh:
+		if err != nil && !errors.Is(err, context.Canceled) {
+			require.NoError(t, err)
+		}
+	case <-time.After(timeout):
+		t.Fatal("timeout waiting for application shutdown")
+	}
+}
+
+func waitForGroupMembers(t *testing.T, broker, groupID string, expectedCount int, timeout time.Duration) {
+	t.Helper()
+
+	eventually(
+		t, func() bool {
+			return getConsumerGroupMembers(t, broker, groupID) == expectedCount
+		}, timeout, fmt.Sprintf("expected %d members in consumer group", expectedCount),
 	)
 }
 
@@ -164,7 +208,6 @@ type consumedRecord struct {
 	Value string
 }
 
-// consumeRecords consumes up to expectedCount records from the topic within the timeout.
 func consumeRecords(
 	t *testing.T, broker, topic, groupID string, expectedCount int, timeout time.Duration,
 ) []consumedRecord {
@@ -208,8 +251,20 @@ func consumeRecords(
 	return records
 }
 
-// eventually retries the condition function until it returns true or the timeout expires.
-func eventually(t *testing.T, condition func() bool, timeout time.Duration, msgAndArgs ...interface{}) {
+func consumeAsMap(
+	t *testing.T, broker, topic, groupID string, expectedCount int, timeout time.Duration,
+) map[string]string {
+	t.Helper()
+
+	records := consumeRecords(t, broker, topic, groupID, expectedCount, timeout)
+	result := make(map[string]string, len(records))
+	for _, r := range records {
+		result[r.Key] = r.Value
+	}
+	return result
+}
+
+func eventually(t *testing.T, condition func() bool, timeout time.Duration, msg string) {
 	t.Helper()
 
 	deadline := time.Now().Add(timeout)
@@ -224,17 +279,12 @@ func eventually(t *testing.T, condition func() bool, timeout time.Duration, msgA
 		select {
 		case <-ticker.C:
 			if time.Now().After(deadline) {
-				if len(msgAndArgs) > 0 {
-					t.Fatalf("condition not met within %v: %v", timeout, msgAndArgs)
-				} else {
-					t.Fatalf("condition not met within %v", timeout)
-				}
+				t.Fatalf("condition not met within %v: %s", timeout, msg)
 			}
 		}
 	}
 }
 
-// getConsumerGroupMembers returns the number of members in a consumer group.
 func getConsumerGroupMembers(t *testing.T, broker, groupID string) int {
 	t.Helper()
 
@@ -260,7 +310,6 @@ func getConsumerGroupMembers(t *testing.T, broker, groupID string) int {
 	return len(group.Members)
 }
 
-// getCommittedOffsets returns the committed offsets for a consumer group.
 func getCommittedOffsets(t *testing.T, broker, groupID string) map[string]map[int32]int64 {
 	t.Helper()
 
@@ -290,3 +339,8 @@ func getCommittedOffsets(t *testing.T, broker, groupID string) map[string]map[in
 
 	return result
 }
+
+type noopRebalanceCallback struct{}
+
+func (noopRebalanceCallback) OnAssigned([]kafka.TopicPartition) error { return nil }
+func (noopRebalanceCallback) OnRevoked([]kafka.TopicPartition) error  { return nil }
