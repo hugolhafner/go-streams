@@ -12,10 +12,10 @@ run = "golangci-lint run ./..."
 run = "go test -v ./..."
 
 [tasks.test-json]
-run = "go test -v -json ./... > test-results.json"
+run = "go test -v -json ./... | tee test-results.json"
 
 [tasks.test-e2e]
 run = "go test -v -tags=e2e ./e2e/..."
 
 [tasks.test-e2e-json]
-run = "go test -v -tags=e2e -json ./e2e/... > e2e-test-results.json"
+run = "go test -v -tags=e2e -json ./e2e/... | tee e2e-test-results.json"

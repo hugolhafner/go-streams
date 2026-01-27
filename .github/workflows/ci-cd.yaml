@@ -54,7 +54,7 @@ jobs:
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: go-test-results
-          path: test_results.json
+          path: test-results.json
 
   e2e:
     name: E2E Tests
@@ -75,7 +75,7 @@ jobs:
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: go-e2e-test-results
-          path: e2e_test_results.json
+          path: e2e-test-results.json
 
   lint:
     name: Lint
