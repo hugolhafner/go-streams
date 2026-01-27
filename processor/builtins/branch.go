@@ -28,17 +28,13 @@ func (p *BranchProcessor[K, V]) Init(ctx processor.Context[K, V]) {
 }
 
 func (p *BranchProcessor[K, V]) Process(r *record.Record[K, V]) error {
-	var lastErr error
 	for i, pred := range p.predicates {
 		if pred(r.Key, r.Value) {
-			err := p.ctx.ForwardTo(p.branches[i], r)
-			if err != nil {
-				lastErr = err
-			}
+			return p.ctx.ForwardTo(p.branches[i], r)
 		}
 	}
 
-	return lastErr
+	return nil
 }
 
 func (p *BranchProcessor[K, V]) Close() error {
