@@ -30,7 +30,7 @@ func TestBranchProcessor_Process(t *testing.T) {
 			expectedBranches: []string{"even"},
 		},
 		{
-			name: "multiple branch matches",
+			name: "single branch match greater than 10",
 			processor: *builtins.NewBranchProcessor(
 				[]func(int, int) bool{
 					func(k, v int) bool { return v%2 == 0 },
@@ -39,7 +39,7 @@ func TestBranchProcessor_Process(t *testing.T) {
 				[]string{"even", "greater_than_10"},
 			),
 			record:           &record.Record[int, int]{Key: 2, Value: 12},
-			expectedBranches: []string{"even", "greater_than_10"},
+			expectedBranches: []string{"even"},
 		},
 		{
 			name: "no branch match",

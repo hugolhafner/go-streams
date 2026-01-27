@@ -54,7 +54,28 @@ jobs:
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: go-test-results
-          path: test_results.json
+          path: test-results.json
+
+  e2e:
+    name: E2E Tests
+    needs: [ setup ]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Setup and Cache
+        uses: ./.github/actions/setup
+        with:
+          docker: 'true'
+
+      - name: E2E Test with Go
+        run: mise run test-e2e-json
+
+      - name: Upload Go test results
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: go-e2e-test-results
+          path: e2e-test-results.json
 
   lint:
     name: Lint
@@ -71,7 +92,7 @@ jobs:
 
   release:
     name: Release
-    needs: [sonarqube, test, lint]
+    needs: [sonarqube, test, lint, e2e]
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     permissions:
