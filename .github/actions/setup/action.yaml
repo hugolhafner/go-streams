@@ -9,6 +9,10 @@ inputs:
     description: "Whether to run 'make deps' to install dependencies"
     required: false
     default: "true"
+  docker:
+    description: "Whether to setup Docker"
+    required: false
+    default: "false"
 
 runs:
   using: "composite"
@@ -18,6 +22,10 @@ runs:
       uses: jdx/mise-action@146a28175021df8ca24f8ee1828cc2a60f980bd5 # v3.5.1
       with:
         version: ${{ inputs.mise-version }}
+
+    - name: Setup Docker
+      if: ${{ inputs.docker == 'true' }}
+      uses: docker/setup-docker-action@e43656e248c0bd0647d3f5c195d116aacf6fcaf4 # v4.7.0
 
     - uses: actions/cache@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
       if: ${{ inputs.make-deps == 'true' }}

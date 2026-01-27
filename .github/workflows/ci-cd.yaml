@@ -65,6 +65,8 @@ jobs:
 
       - name: Setup and Cache
         uses: ./.github/actions/setup
+        with:
+          docker: 'true'
 
       - name: E2E Test with Go
         run: mise run test-e2e-json
@@ -90,7 +92,7 @@ jobs:
 
   release:
     name: Release
-    needs: [sonarqube, test, lint]
+    needs: [sonarqube, test, lint, e2e]
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     permissions:
