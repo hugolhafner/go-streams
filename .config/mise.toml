@@ -14,8 +14,8 @@ run = "go test -v ./..."
 [tasks.test-json]
 run = "go test -v -json ./... > test-results.json"
 
-[tasks.e2e-test]
+[tasks.test-e2e]
 run = "go test -v -tags=e2e ./e2e/..."
 
-[tasks.e2e-test-json]
+[tasks.test-e2e-json]
 run = "go test -v -tags=e2e -json ./e2e/... > e2e-test-results.json"
