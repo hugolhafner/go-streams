@@ -86,6 +86,7 @@ func TestContext_Forward_PropagatesDownstreamError(t *testing.T) {
 
 	tsk, err := factory.CreateTask(tp, producer)
 	require.NoError(t, err)
+	//nolint:errcheck
 	defer tsk.Close()
 
 	rec := newTestConsumerRecord("input", 0, 0, "key", "value")
@@ -133,6 +134,7 @@ func TestContext_Forward_MultipleChildren_StopsOnFirstError(t *testing.T) {
 	tp := kafka.TopicPartition{Topic: "input", Partition: 0}
 	tsk, err := factory.CreateTask(tp, producer)
 	require.NoError(t, err)
+	//nolint:errcheck
 	defer tsk.Close()
 
 	rec := newTestConsumerRecord("input", 0, 0, "key", "value")
@@ -184,6 +186,7 @@ func TestContext_Forward_WrapsErrorWithNodeInfo(t *testing.T) {
 
 	tsk, err := factory.CreateTask(tp, producer)
 	require.NoError(t, err)
+	//nolint:errcheck
 	defer tsk.Close()
 
 	rec := newTestConsumerRecord("input", 0, 0, "key", "value")
@@ -241,6 +244,7 @@ func TestContext_ForwardTo_PropagatesError(t *testing.T) {
 
 	tsk, err := factory.CreateTask(tp, producer)
 	require.NoError(t, err)
+	//nolint:errcheck
 	defer tsk.Close()
 
 	rec := newTestConsumerRecord("input", 0, 0, "key", "value")
@@ -279,6 +283,7 @@ func TestContext_ForwardTo_UnknownChildReturnsError(t *testing.T) {
 
 	tsk, err := factory.CreateTask(tp, producer)
 	require.NoError(t, err)
+	//nolint:errcheck
 	defer tsk.Close()
 
 	rec := newTestConsumerRecord("input", 0, 0, "key", "value")

@@ -470,7 +470,8 @@ func TestSimpleRecords(t *testing.T) {
 func TestSimpleRecords_PanicOnOdd(t *testing.T) {
 	require.Panics(
 		t, func() {
-			mock.SimpleRecords("k1", "v1", "k2") // Odd number
+			//nolint:staticcheck
+			mock.SimpleRecords("k1", "v1", "k2")
 		},
 	)
 }
