@@ -83,10 +83,6 @@ func (t *TopologyTask) processSafe(ctx context.Context, rec kafka.ConsumerRecord
 
 func (t *TopologyTask) Process(ctx context.Context, rec kafka.ConsumerRecord) error {
 	err := t.processSafe(ctx, rec)
-	if err != nil {
-		// TODO: add configurable error handling strategies
-		t.logger.Error("Error processing record, skipping", "error", err)
-	}
 
 	t.offset = kafka.Offset{
 		Offset:      rec.Offset + 1,

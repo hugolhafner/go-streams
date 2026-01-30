@@ -46,7 +46,7 @@ func NewPeriodicCommitter(opts ...PeriodicCommitterOption) *PeriodicCommitter {
 		c:          cfg,
 		count:      0,
 		lastCommit: time.Now(),
-		channel:    make(chan struct{}),
+		channel:    make(chan struct{}, 1),
 	}
 }
 

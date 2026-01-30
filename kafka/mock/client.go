@@ -125,24 +125,34 @@ func (c *Client) Poll(ctx context.Context) ([]kafka.ConsumerRecord, error) {
 	var records []kafka.ConsumerRecord
 	recordCount := 0
 
-	// Round-robin through assigned partitions
-	for _, tp := range c.assignedPartitions {
-		if recordCount >= c.maxPollRecords {
+	// round robin across assigned partitions
+	for recordCount < c.maxPollRecords {
+		progressMade := false
+
+		for _, tp := range c.assignedPartitions {
+			queue, exists := c.recordQueues[tp]
+			if !exists {
+				continue
+			}
+
+			pos := c.queuePositions[tp]
+			if pos >= len(queue) {
+				continue
+			}
+
+			records = append(records, queue[pos])
+			c.queuePositions[tp]++
+			recordCount++
+			progressMade = true
+
+			if recordCount >= c.maxPollRecords {
+				break
+			}
+		}
+
+		if !progressMade {
 			break
 		}
-
-		queue, exists := c.recordQueues[tp]
-		if !exists {
-			continue
-		}
-
-		pos := c.queuePositions[tp]
-		for pos < len(queue) && recordCount < c.maxPollRecords {
-			records = append(records, queue[pos])
-			pos++
-			recordCount++
-		}
-		c.queuePositions[tp] = pos
 	}
 
 	return records, nil
@@ -179,17 +189,24 @@ func (c *Client) Send(ctx context.Context, topic string, key, value []byte, head
 		}
 	}
 
-	// Copy headers to avoid mutation issues
 	headersCopy := make(map[string][]byte, len(headers))
 	for k, v := range headers {
-		headersCopy[k] = v
+		copied := make([]byte, len(v))
+		copy(copied, v)
+		headersCopy[k] = copied
 	}
+
+	keyCopy := make([]byte, len(key))
+	copy(keyCopy, key)
+
+	valueCopy := make([]byte, len(value))
+	copy(valueCopy, value)
 
 	c.producedRecords = append(
 		c.producedRecords, ProducedRecord{
 			Topic:   topic,
-			Key:     key,
-			Value:   value,
+			Key:     keyCopy,
+			Value:   valueCopy,
 			Headers: headersCopy,
 		},
 	)
