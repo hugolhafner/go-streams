@@ -194,7 +194,18 @@ func (t *Topology) printNode(name, prefix string, visited map[string]bool) {
 		return
 	}
 
-	fmt.Printf("%s- %s (%s)\n", prefix, name, node.Type().String())
+	msg := fmt.Sprintf("%s- %s (%s", prefix, name, node.Type().String())
+	if node.Type() == NodeTypeSource {
+		if sn, ok := node.(*sourceNode); ok {
+			msg += fmt.Sprintf(", topic=%s", sn.topic)
+		}
+	} else if node.Type() == NodeTypeSink {
+		if sn, ok := node.(*sinkNode); ok {
+			msg += fmt.Sprintf(", topic=%s", sn.topic)
+		}
+	}
+	msg += ")"
+	fmt.Printf("%s\n", msg)
 
 	children, exists := t.edges[name]
 	if !exists {

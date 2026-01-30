@@ -16,7 +16,7 @@ import (
 )
 
 // {"id": "order1", "amount": 100.0, "user_id": "user1"}
-func filterInvalidOrders(k []byte, v Order) bool {
+func filterInvalidOrders(ctx context.Context, k []byte, v Order) (bool, error) {
 	keep := v.ID != "" && v.Amount > 0
 	if !keep {
 		zap.L().Warn("Invalid order", zap.String("key", string(k)), zap.Any("value", v))
@@ -24,15 +24,15 @@ func filterInvalidOrders(k []byte, v Order) bool {
 		zap.L().Debug("Valid order", zap.String("key", string(k)), zap.Any("value", v))
 	}
 
-	return keep
+	return keep, nil
 }
 
-func processOrder(k []byte, v Order) (string, OrderSummary) {
+func processOrder(ctx context.Context, k []byte, v Order) (string, OrderSummary, error) {
 	zap.L().Debug("Processing order", zap.String("key", string(k)), zap.Any("value", v))
 	return v.UserID, OrderSummary{
 		OrderID: v.ID,
 		Amount:  v.Amount,
-	}
+	}, nil
 }
 
 func KgoComplete() {

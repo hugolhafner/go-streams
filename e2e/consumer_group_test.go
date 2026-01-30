@@ -29,7 +29,11 @@ func TestE2E_ConsumerGroup_SingleConsumer(t *testing.T) {
 
 	builder := kstream.NewStreamsBuilder()
 	source := kstream.StreamWithSerde(builder, inputTopic, serde.String(), serde.String())
-	mapped := kstream.MapValues(source, strings.ToUpper)
+	mapped := kstream.MapValues(
+		source, func(_ context.Context, value string) (string, error) {
+			return strings.ToUpper(value), nil
+		},
+	)
 	kstream.ToWithSerde(mapped, outputTopic, serde.String(), serde.String())
 
 	client, err := kafka.NewKgoClient(
@@ -80,7 +84,11 @@ func TestE2E_ConsumerGroup_RebalanceOnJoin(t *testing.T) {
 	buildTopology := func() *kstream.StreamsBuilder {
 		builder := kstream.NewStreamsBuilder()
 		source := kstream.StreamWithSerde(builder, inputTopic, serde.String(), serde.String())
-		mapped := kstream.MapValues(source, strings.ToUpper)
+		mapped := kstream.MapValues(
+			source, func(_ context.Context, value string) (string, error) {
+				return strings.ToUpper(value), nil
+			},
+		)
 		kstream.ToWithSerde(mapped, outputTopic, serde.String(), serde.String())
 		return builder
 	}
@@ -154,7 +162,11 @@ func TestE2E_ConsumerGroup_RebalanceOnLeave(t *testing.T) {
 	buildTopology := func() *kstream.StreamsBuilder {
 		builder := kstream.NewStreamsBuilder()
 		source := kstream.StreamWithSerde(builder, inputTopic, serde.String(), serde.String())
-		mapped := kstream.MapValues(source, strings.ToUpper)
+		mapped := kstream.MapValues(
+			source, func(_ context.Context, value string) (string, error) {
+				return strings.ToUpper(value), nil
+			},
+		)
 		kstream.ToWithSerde(mapped, outputTopic, serde.String(), serde.String())
 		return builder
 	}
@@ -254,7 +266,11 @@ func TestE2E_ConsumerGroup_ContinuousProcessingDuringRebalance(t *testing.T) {
 	buildTopology := func() *kstream.StreamsBuilder {
 		builder := kstream.NewStreamsBuilder()
 		source := kstream.StreamWithSerde(builder, inputTopic, serde.String(), serde.String())
-		mapped := kstream.MapValues(source, strings.ToUpper)
+		mapped := kstream.MapValues(
+			source, func(_ context.Context, value string) (string, error) {
+				return strings.ToUpper(value), nil
+			},
+		)
 		kstream.ToWithSerde(mapped, outputTopic, serde.String(), serde.String())
 		return builder
 	}
@@ -359,16 +375,19 @@ func TestE2E_ConsumerGroup_MultipleTopics(t *testing.T) {
 
 	source1 := kstream.StreamWithSerde(builder, inputTopic1, serde.String(), serde.String())
 	mapped1 := kstream.Map(
-		source1, func(k, v string) (string, string) {
-			return k, "FROM_TOPIC1:" + strings.ToUpper(v)
+		source1, func(
+			_ context.Context,
+			k, v string,
+		) (string, string, error) {
+			return k, "FROM_TOPIC1:" + strings.ToUpper(v), nil
 		},
 	)
 	kstream.ToWithSerde(mapped1, outputTopic, serde.String(), serde.String())
 
 	source2 := kstream.StreamWithSerde(builder, inputTopic2, serde.String(), serde.String())
 	mapped2 := kstream.Map(
-		source2, func(k, v string) (string, string) {
-			return k, "FROM_TOPIC2:" + strings.ToUpper(v)
+		source2, func(_ context.Context, k, v string) (string, string, error) {
+			return k, "FROM_TOPIC2:" + strings.ToUpper(v), nil
 		},
 	)
 	kstream.ToWithSerde(mapped2, outputTopic, serde.String(), serde.String())

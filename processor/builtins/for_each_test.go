@@ -1,6 +1,8 @@
 package builtins_test
 
 import (
+	"context"
+	"errors"
 	"testing"
 
 	"github.com/hugolhafner/go-streams/processor/builtins"
@@ -19,7 +21,7 @@ func TestForEachProcessor_Process(t *testing.T) {
 		expectedKey := r.Key
 		expectedValue := r.Value
 
-		action := func(k, v int) error {
+		action := func(_ context.Context, k, v int) error {
 			if k != expectedKey {
 				t.Errorf("Expected key %d, got %d", expectedKey, k)
 			}
@@ -30,7 +32,46 @@ func TestForEachProcessor_Process(t *testing.T) {
 		}
 
 		p := builtins.NewForEachProcessor(action)
-		err := p.Process(r)
+		err := p.Process(context.Background(), r)
 		require.NoError(t, err)
 	}
+}
+
+func TestForEachProcessor_ActionError(t *testing.T) {
+	t.Run(
+		"action error is propagated", func(t *testing.T) {
+			action := func(ctx context.Context, k, v int) error {
+				return errUserFunction
+			}
+
+			p := builtins.NewForEachProcessor(action)
+			input := &record.Record[int, int]{Key: 1, Value: 2}
+			err := p.Process(context.Background(), input)
+
+			require.Error(t, err)
+			require.ErrorIs(t, err, errUserFunction)
+		},
+	)
+
+	t.Run(
+		"action error with specific condition", func(t *testing.T) {
+			action := func(ctx context.Context, k, v int) error {
+				if v > 100 {
+					return errors.New("value too large")
+				}
+				return nil
+			}
+
+			p := builtins.NewForEachProcessor(action)
+
+			input1 := &record.Record[int, int]{Key: 1, Value: 50}
+			err := p.Process(context.Background(), input1)
+			require.NoError(t, err)
+
+			input2 := &record.Record[int, int]{Key: 1, Value: 150}
+			err = p.Process(context.Background(), input2)
+			require.Error(t, err)
+			require.Contains(t, err.Error(), "value too large")
+		},
+	)
 }

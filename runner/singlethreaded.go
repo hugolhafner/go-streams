@@ -6,8 +6,6 @@ import (
 	"time"
 
 	"github.com/hugolhafner/dskit/backoff"
-	"github.com/hugolhafner/dskit/retry"
-
 	"github.com/hugolhafner/go-streams/committer"
 	"github.com/hugolhafner/go-streams/kafka"
 	"github.com/hugolhafner/go-streams/logger"
@@ -65,7 +63,16 @@ func (r *SingleThreaded) sourceTopics() []string {
 }
 
 func (r *SingleThreaded) shutdown() {
+	r.logger.Info("Shutting down runner")
 	r.committer.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
+	defer cancel()
+
+	if err := r.commitOffsets(ctx); err != nil {
+		r.logger.Error("Failed to commit offsets during shutdown", "error", err)
+	}
+	r.logger.Info("Shutdown complete")
 }
 
 func (r *SingleThreaded) commitOffsets(_ context.Context) error {
@@ -77,33 +84,67 @@ func (r *SingleThreaded) commitOffsets(_ context.Context) error {
 	return r.consumer.Commit(offsets)
 }
 
-func (r *SingleThreaded) runCommitLoop() {
-	r.logger.Info("Starting commit loop")
-
-	rp := retry.MustNewPolicy(
-		"commit",
-		retry.WithMaxAttempts(10),
-		retry.WithBackoff(
-			backoff.NewExponential(
-				backoff.WithMaxInterval(time.Second*3),
-				backoff.WithJitter(0.2),
-			),
-		),
+func (r *SingleThreaded) doCommit(ctx context.Context) {
+	b := backoff.NewExponential(
+		backoff.WithMaxInterval(time.Second*3),
+		backoff.WithJitter(0.2),
 	)
 
+	var attempt uint = 1
 	for {
-		_, ok := <-r.committer.C()
-		if !ok {
-			r.logger.Info("Commit loop shutting down")
-			return
+		r.logger.Debug("Committing offsets", "attempt", attempt)
+		err := r.commitOffsets(ctx)
+		if err == nil {
+			r.logger.Debug("Successfully committed offsets")
+			break
 		}
 
-		r.logger.Debug("Committing offsets")
+		sleep := b.Next(attempt)
+		r.logger.Error("Failed to commit offsets", "error", err, "attempt", attempt, "delay", sleep.String())
 
-		if err := retry.Do(context.Background(), rp, r.commitOffsets); err != nil {
-			r.logger.Error("Failed to commit offsets", "error", err)
+		select {
+		case <-ctx.Done():
+			r.logger.Warn("Context closed, stopping commit retries")
+			return
+		case <-time.After(sleep):
+		}
+
+		attempt++
+	}
+}
+
+func (r *SingleThreaded) doPoll(ctx context.Context) error {
+	r.logger.Debug("Polling for records")
+
+	records, err := r.consumer.Poll(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to poll: %w", err)
+	}
+
+	r.logger.Debug("Received records", "records", len(records))
+
+	for _, record := range records {
+		t, ok := r.taskManager.TaskFor(record.TopicPartition())
+		if !ok {
+			r.logger.Warn(
+				"No task found for topic partition", "topic_partition",
+				record.TopicPartition(),
+			)
+			// TODO: Is this safe?
+			continue
+		}
+
+		// TODO: Add error custom handling support
+		if err := t.Process(ctx, record); err != nil {
+			r.logger.Error(
+				"Failed to process record", "topic_partition",
+				record.TopicPartition(), "offset", record.Offset, "error", err,
+			)
 		}
 	}
+
+	r.committer.RecordProcessed(len(records))
+	return nil
 }
 
 func (r *SingleThreaded) Run(ctx context.Context) error {
@@ -112,41 +153,25 @@ func (r *SingleThreaded) Run(ctx context.Context) error {
 		return fmt.Errorf("failed to subscribe to topics: %w", err)
 	}
 
-	go r.runCommitLoop()
 	defer r.shutdown()
 
 	for {
 		select {
 		case <-ctx.Done():
+			r.logger.Debug("Context closed, shutting down Run()")
 			return nil
-		default:
-		}
-
-		r.logger.Debug("Polling for records")
-
-		records, err := r.consumer.Poll(ctx)
-		if err != nil {
-			return fmt.Errorf("failed to poll: %w", err)
-		}
-
-		r.logger.Debug("Received records", "records", len(records))
-
-		for _, record := range records {
-			t, ok := r.taskManager.TaskFor(record.TopicPartition())
+		case _, ok := <-r.committer.C():
 			if !ok {
-				r.logger.Warn(
-					"No task found for topic partition", "topic_partition",
-					record.TopicPartition(),
-				)
-				// TODO: Is this safe?
-				continue
+				r.logger.Info("Commit loop got shut down signal in Run()")
+				return nil
 			}
 
-			// TODO: Does this need to return an error?
-			// nolint:errcheck
-			t.Process(record)
+			r.doCommit(ctx)
+		default:
+			if err := r.doPoll(ctx); err != nil {
+				r.logger.Warn("Failed to poll for records", "error", err)
+				return err
+			}
 		}
-
-		r.committer.RecordProcessed(len(records))
 	}
 }

@@ -1,6 +1,10 @@
 package processor
 
-import "github.com/hugolhafner/go-streams/record"
+import (
+	"context"
+
+	"github.com/hugolhafner/go-streams/record"
+)
 
 var (
 	_ UntypedProcessor  = (*untypedProcessorAdapter[any, any, any, any])(nil)
@@ -16,13 +20,13 @@ func (a *untypedProcessorAdapter[KIn, VIn, KOut, VOut]) Init(ctx UntypedContext)
 	a.typed.Init(typedCtx)
 }
 
-func (a *untypedProcessorAdapter[KIn, VIn, KOut, VOut]) Process(r *record.UntypedRecord) error {
+func (a *untypedProcessorAdapter[KIn, VIn, KOut, VOut]) Process(ctx context.Context, r *record.UntypedRecord) error {
 	typed := &record.Record[KIn, VIn]{
 		Key:      r.Key.(KIn),
 		Value:    r.Value.(VIn),
 		Metadata: r.Metadata,
 	}
-	return a.typed.Process(typed)
+	return a.typed.Process(ctx, typed)
 }
 
 func (a *untypedProcessorAdapter[KIn, VIn, KOut, VOut]) Close() error {
@@ -33,10 +37,10 @@ type typedContextAdapter[K, V any] struct {
 	untyped UntypedContext
 }
 
-func (c *typedContextAdapter[K, V]) Forward(r *record.Record[K, V]) error {
-	return c.untyped.Forward(r.ToUntyped())
+func (c *typedContextAdapter[K, V]) Forward(ctx context.Context, r *record.Record[K, V]) error {
+	return c.untyped.Forward(ctx, r.ToUntyped())
 }
 
-func (c *typedContextAdapter[K, V]) ForwardTo(childName string, r *record.Record[K, V]) error {
-	return c.untyped.ForwardTo(childName, r.ToUntyped())
+func (c *typedContextAdapter[K, V]) ForwardTo(ctx context.Context, childName string, r *record.Record[K, V]) error {
+	return c.untyped.ForwardTo(ctx, childName, r.ToUntyped())
 }

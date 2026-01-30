@@ -14,7 +14,7 @@ type sinkHandler struct {
 	producer kafka.Producer
 }
 
-func (s *sinkHandler) Process(rec *record.UntypedRecord) error {
+func (s *sinkHandler) Process(ctx context.Context, rec *record.UntypedRecord) error {
 	topic := s.node.Topic()
 
 	key, err := s.node.KeySerde().Serialise(topic, rec.Key)
@@ -32,7 +32,7 @@ func (s *sinkHandler) Process(rec *record.UntypedRecord) error {
 		headers = rec.Headers
 	}
 
-	if err := s.producer.Send(context.Background(), topic, key, value, headers); err != nil {
+	if err := s.producer.Send(ctx, topic, key, value, headers); err != nil {
 		return fmt.Errorf("produce to %s: %w", topic, err)
 	}
 

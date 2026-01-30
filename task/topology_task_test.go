@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/hugolhafner/go-streams/kafka"
+	"github.com/hugolhafner/go-streams/kafka/mock"
 	"github.com/hugolhafner/go-streams/logger"
 	"github.com/hugolhafner/go-streams/processor"
 	"github.com/hugolhafner/go-streams/processor/builtins"
@@ -16,46 +17,6 @@ import (
 	"github.com/hugolhafner/go-streams/topology"
 	"github.com/stretchr/testify/require"
 )
-
-// mockProducer captures records sent to it for verification
-type mockProducer struct {
-	records []producedRecord
-	sendErr error
-}
-
-type producedRecord struct {
-	topic   string
-	key     []byte
-	value   []byte
-	headers map[string][]byte
-}
-
-func newMockProducer() *mockProducer {
-	return &mockProducer{
-		records: make([]producedRecord, 0),
-	}
-}
-
-func (m *mockProducer) Send(_ context.Context, topic string, key, value []byte, headers map[string][]byte) error {
-	if m.sendErr != nil {
-		return m.sendErr
-	}
-	m.records = append(
-		m.records, producedRecord{
-			topic:   topic,
-			key:     key,
-			value:   value,
-			headers: headers,
-		},
-	)
-	return nil
-}
-
-func (m *mockProducer) Flush(_ time.Duration) error {
-	return nil
-}
-
-func (m *mockProducer) Close() {}
 
 // failingDeserializer always returns an error on deserialize
 type failingDeserializer struct{}
@@ -77,7 +38,7 @@ func (p *panicProcessor[K, V]) Init(ctx processor.Context[K, V]) {
 	p.ctx = ctx
 }
 
-func (p *panicProcessor[K, V]) Process(_ *record.Record[K, V]) error {
+func (p *panicProcessor[K, V]) Process(_ context.Context, _ *record.Record[K, V]) error {
 	panic("intentional panic for testing")
 }
 
@@ -99,8 +60,8 @@ func (p *closeTrackingProcessor[K, V]) Init(ctx processor.Context[K, V]) {
 	p.ctx = ctx
 }
 
-func (p *closeTrackingProcessor[K, V]) Process(r *record.Record[K, V]) error {
-	return p.ctx.Forward(r)
+func (p *closeTrackingProcessor[K, V]) Process(ctx context.Context, r *record.Record[K, V]) error {
+	return p.ctx.Forward(ctx, r)
 }
 
 func (p *closeTrackingProcessor[K, V]) Close() error {
@@ -140,7 +101,7 @@ func TestTopologyTask_BasicProcessing(t *testing.T) {
 	factory, err := task.NewTopologyTaskFactory(topo, logger.NewNoopLogger())
 	require.NoError(t, err)
 
-	producer := newMockProducer()
+	producer := mock.NewClient()
 	tp := kafka.TopicPartition{Topic: "input", Partition: 0}
 
 	tsk, err := factory.CreateTask(tp, producer)
@@ -151,13 +112,12 @@ func TestTopologyTask_BasicProcessing(t *testing.T) {
 	}()
 
 	rec := newTestRecord("input", 0, 100, "test-key", "test-value")
-	err = tsk.Process(rec)
+	err = tsk.Process(context.Background(), rec)
 	require.NoError(t, err)
 
-	require.Len(t, producer.records, 1)
-	require.Equal(t, "output", producer.records[0].topic)
-	require.Equal(t, "test-key", string(producer.records[0].key))
-	require.Equal(t, "test-value", string(producer.records[0].value))
+	producer.AssertProducedCount(t, 1)
+	producer.AssertProducedCountForTopic(t, "output", 1)
+	producer.AssertProducedString(t, "output", "test-key", "test-value")
 }
 
 func TestTopologyTask_OffsetTracking(t *testing.T) {
@@ -177,7 +137,7 @@ func TestTopologyTask_OffsetTracking(t *testing.T) {
 	factory, err := task.NewTopologyTaskFactory(topo, logger.NewNoopLogger())
 	require.NoError(t, err)
 
-	producer := newMockProducer()
+	producer := mock.NewClient()
 	tp := kafka.TopicPartition{Topic: "input", Partition: 0}
 
 	tsk, err := factory.CreateTask(tp, producer)
@@ -192,7 +152,7 @@ func TestTopologyTask_OffsetTracking(t *testing.T) {
 
 	// Process first record at offset 0
 	rec1 := newTestRecord("input", 0, 0, "k1", "v1")
-	err = tsk.Process(rec1)
+	err = tsk.Process(context.Background(), rec1)
 	require.NoError(t, err)
 
 	offset, ok := tsk.CurrentOffset()
@@ -201,7 +161,7 @@ func TestTopologyTask_OffsetTracking(t *testing.T) {
 
 	// Process second record at offset 5
 	rec2 := newTestRecord("input", 0, 5, "k2", "v2")
-	err = tsk.Process(rec2)
+	err = tsk.Process(context.Background(), rec2)
 	require.NoError(t, err)
 
 	offset, ok = tsk.CurrentOffset()
@@ -219,8 +179,8 @@ func TestTopologyTask_FilterProcessing(t *testing.T) {
 
 	var filterSupplier processor.Supplier[string, string, string, string] = func() processor.Processor[string, string, string, string] {
 		return builtins.NewFilterProcessor(
-			func(k, v string) bool {
-				return v != "drop"
+			func(_ context.Context, k, v string) (bool, error) {
+				return v != "drop", nil
 			},
 		)
 	}
@@ -233,7 +193,7 @@ func TestTopologyTask_FilterProcessing(t *testing.T) {
 	factory, err := task.NewTopologyTaskFactory(topo, logger.NewNoopLogger())
 	require.NoError(t, err)
 
-	producer := newMockProducer()
+	producer := mock.NewClient()
 	tp := kafka.TopicPartition{Topic: "input", Partition: 0}
 
 	tsk, err := factory.CreateTask(tp, producer)
@@ -245,21 +205,21 @@ func TestTopologyTask_FilterProcessing(t *testing.T) {
 
 	// Process record that should pass
 	passRec := newTestRecord("input", 0, 0, "key1", "keep-me")
-	err = tsk.Process(passRec)
+	err = tsk.Process(context.Background(), passRec)
 	require.NoError(t, err)
-	require.Len(t, producer.records, 1, "record should pass filter")
+	producer.AssertProducedCount(t, 1)
 
 	// Process record that should be dropped
 	dropRec := newTestRecord("input", 0, 1, "key2", "drop")
-	err = tsk.Process(dropRec)
+	err = tsk.Process(context.Background(), dropRec)
 	require.NoError(t, err)
-	require.Len(t, producer.records, 1, "record should be filtered out")
+	producer.AssertProducedCount(t, 1) // Still 1, not 2
 
 	// Process another record that passes
 	passRec2 := newTestRecord("input", 0, 2, "key3", "also-keep")
-	err = tsk.Process(passRec2)
+	err = tsk.Process(context.Background(), passRec2)
 	require.NoError(t, err)
-	require.Len(t, producer.records, 2, "record should pass filter")
+	producer.AssertProducedCount(t, 2)
 }
 
 func TestTopologyTask_MapTransformation(t *testing.T) {
@@ -272,8 +232,8 @@ func TestTopologyTask_MapTransformation(t *testing.T) {
 
 	var mapSupplier processor.Supplier[string, string, string, string] = func() processor.Processor[string, string, string, string] {
 		return builtins.NewMapProcessor(
-			func(k, v string) (string, string) {
-				return "prefix-" + k, "TRANSFORMED:" + v
+			func(_ context.Context, k, v string) (string, string, error) {
+				return "prefix-" + k, "TRANSFORMED:" + v, nil
 			},
 		)
 	}
@@ -285,7 +245,7 @@ func TestTopologyTask_MapTransformation(t *testing.T) {
 	factory, err := task.NewTopologyTaskFactory(topo, logger.NewNoopLogger())
 	require.NoError(t, err)
 
-	producer := newMockProducer()
+	producer := mock.NewClient()
 	tp := kafka.TopicPartition{Topic: "input", Partition: 0}
 
 	tsk, err := factory.CreateTask(tp, producer)
@@ -296,12 +256,11 @@ func TestTopologyTask_MapTransformation(t *testing.T) {
 	}()
 
 	rec := newTestRecord("input", 0, 0, "original-key", "original-value")
-	err = tsk.Process(rec)
+	err = tsk.Process(context.Background(), rec)
 	require.NoError(t, err)
 
-	require.Len(t, producer.records, 1)
-	require.Equal(t, "prefix-original-key", string(producer.records[0].key))
-	require.Equal(t, "TRANSFORMED:original-value", string(producer.records[0].value))
+	producer.AssertProducedCount(t, 1)
+	producer.AssertProducedString(t, "output", "prefix-original-key", "TRANSFORMED:original-value")
 }
 
 func TestTopologyTask_ChainedProcessors(t *testing.T) {
@@ -315,8 +274,8 @@ func TestTopologyTask_ChainedProcessors(t *testing.T) {
 	// Filter: only pass values starting with "valid"
 	var filterSupplier processor.Supplier[string, string, string, string] = func() processor.Processor[string, string, string, string] {
 		return builtins.NewFilterProcessor(
-			func(k, v string) bool {
-				return len(v) >= 5 && v[:5] == "valid"
+			func(_ context.Context, k, v string) (bool, error) {
+				return len(v) >= 5 && v[:5] == "valid", nil
 			},
 		)
 	}
@@ -325,8 +284,8 @@ func TestTopologyTask_ChainedProcessors(t *testing.T) {
 	// Map: transform the value
 	var mapSupplier processor.Supplier[string, string, string, string] = func() processor.Processor[string, string, string, string] {
 		return builtins.NewMapProcessor(
-			func(k, v string) (string, string) {
-				return k, "processed:" + v
+			func(_ context.Context, k, v string) (string, string, error) {
+				return k, "processed:" + v, nil
 			},
 		)
 	}
@@ -338,7 +297,7 @@ func TestTopologyTask_ChainedProcessors(t *testing.T) {
 	factory, err := task.NewTopologyTaskFactory(topo, logger.NewNoopLogger())
 	require.NoError(t, err)
 
-	producer := newMockProducer()
+	producer := mock.NewClient()
 	tp := kafka.TopicPartition{Topic: "input", Partition: 0}
 
 	tsk, err := factory.CreateTask(tp, producer)
@@ -350,16 +309,18 @@ func TestTopologyTask_ChainedProcessors(t *testing.T) {
 
 	// Record that passes filter
 	validRec := newTestRecord("input", 0, 0, "k1", "valid-data")
-	err = tsk.Process(validRec)
+	err = tsk.Process(context.Background(), validRec)
 	require.NoError(t, err)
-	require.Len(t, producer.records, 1)
-	require.Equal(t, "processed:valid-data", string(producer.records[0].value))
+	producer.AssertProducedCount(t, 1)
+
+	records := producer.ProducedRecords()
+	require.Equal(t, "processed:valid-data", string(records[0].Value))
 
 	// Record that fails filter
 	invalidRec := newTestRecord("input", 0, 1, "k2", "invalid")
-	err = tsk.Process(invalidRec)
+	err = tsk.Process(context.Background(), invalidRec)
 	require.NoError(t, err)
-	require.Len(t, producer.records, 1, "filtered record should not reach sink")
+	producer.AssertProducedCount(t, 1) // Still 1, filtered record doesn't reach sink
 }
 
 func TestTopologyTask_PanicRecovery(t *testing.T) {
@@ -383,7 +344,7 @@ func TestTopologyTask_PanicRecovery(t *testing.T) {
 	factory, err := task.NewTopologyTaskFactory(topo, logger.NewNoopLogger())
 	require.NoError(t, err)
 
-	producer := newMockProducer()
+	producer := mock.NewClient()
 	tp := kafka.TopicPartition{Topic: "input", Partition: 0}
 
 	tsk, err := factory.CreateTask(tp, producer)
@@ -394,7 +355,7 @@ func TestTopologyTask_PanicRecovery(t *testing.T) {
 	}()
 
 	rec := newTestRecord("input", 0, 0, "key", "value")
-	err = tsk.Process(rec)
+	err = tsk.Process(context.Background(), rec)
 
 	// Error should be returned (panic recovered)
 	require.Error(t, err)
@@ -422,7 +383,7 @@ func TestTopologyTask_DeserializationError(t *testing.T) {
 	factory, err := task.NewTopologyTaskFactory(topo, logger.NewNoopLogger())
 	require.NoError(t, err)
 
-	producer := newMockProducer()
+	producer := mock.NewClient()
 	tp := kafka.TopicPartition{Topic: "input", Partition: 0}
 
 	tsk, err := factory.CreateTask(tp, producer)
@@ -433,14 +394,14 @@ func TestTopologyTask_DeserializationError(t *testing.T) {
 	}()
 
 	rec := newTestRecord("input", 0, 0, "key", "value")
-	err = tsk.Process(rec)
+	err = tsk.Process(context.Background(), rec)
 
 	// Error should be returned for deserialization failure
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "deserialize")
 
 	// No record should be produced
-	require.Len(t, producer.records, 0)
+	producer.AssertNoProducedRecords(t)
 
 	// Offset should still be tracked (bad records are skipped, not retried forever)
 	offset, ok := tsk.CurrentOffset()
@@ -467,8 +428,7 @@ func TestTopologyTask_ProducerError(t *testing.T) {
 	factory, err := task.NewTopologyTaskFactory(topo, logger.NewNoopLogger())
 	require.NoError(t, err)
 
-	producer := newMockProducer()
-	producer.sendErr = errors.New("kafka unavailable")
+	producer := mock.NewClient(mock.WithSendError(errors.New("kafka unavailable")))
 
 	tp := kafka.TopicPartition{Topic: "input", Partition: 0}
 	tsk, err := factory.CreateTask(tp, producer)
@@ -479,7 +439,7 @@ func TestTopologyTask_ProducerError(t *testing.T) {
 	}()
 
 	rec := newTestRecord("input", 0, 0, "key", "value")
-	err = tsk.Process(rec)
+	err = tsk.Process(context.Background(), rec)
 
 	// Error should be returned
 	require.Error(t, err)
@@ -503,7 +463,7 @@ func TestTopologyTask_Partition(t *testing.T) {
 	factory, err := task.NewTopologyTaskFactory(topo, logger.NewNoopLogger())
 	require.NoError(t, err)
 
-	producer := newMockProducer()
+	producer := mock.NewClient()
 	tp := kafka.TopicPartition{Topic: "my-topic", Partition: 7}
 
 	tsk, err := factory.CreateTask(tp, producer)
@@ -528,7 +488,7 @@ func TestTopologyTask_InitialOffsetState(t *testing.T) {
 	factory, err := task.NewTopologyTaskFactory(topo, logger.NewNoopLogger())
 	require.NoError(t, err)
 
-	producer := newMockProducer()
+	producer := mock.NewClient()
 	tp := kafka.TopicPartition{Topic: "input", Partition: 0}
 
 	tsk, err := factory.CreateTask(tp, producer)
@@ -559,7 +519,7 @@ func TestTopologyTask_HeaderPreservation(t *testing.T) {
 	factory, err := task.NewTopologyTaskFactory(topo, logger.NewNoopLogger())
 	require.NoError(t, err)
 
-	producer := newMockProducer()
+	producer := mock.NewClient()
 	tp := kafka.TopicPartition{Topic: "input", Partition: 0}
 
 	tsk, err := factory.CreateTask(tp, producer)
@@ -583,12 +543,12 @@ func TestTopologyTask_HeaderPreservation(t *testing.T) {
 		LeaderEpoch: 1,
 	}
 
-	err = tsk.Process(rec)
+	err = tsk.Process(context.Background(), rec)
 	require.NoError(t, err)
 
-	require.Len(t, producer.records, 1)
-	require.Equal(t, []byte("abc123"), producer.records[0].headers["correlation-id"])
-	require.Equal(t, []byte("xyz789"), producer.records[0].headers["trace-id"])
+	producer.AssertProducedCount(t, 1)
+	producer.AssertHeader(t, "output", []byte("key"), "correlation-id", []byte("abc123"))
+	producer.AssertHeader(t, "output", []byte("key"), "trace-id", []byte("xyz789"))
 }
 
 func TestTopologyTaskFactory_NoSourceNodes(t *testing.T) {
@@ -612,7 +572,7 @@ func TestTopologyTaskFactory_UnknownSourceTopic(t *testing.T) {
 	factory, err := task.NewTopologyTaskFactory(topo, logger.NewNoopLogger())
 	require.NoError(t, err)
 
-	producer := newMockProducer()
+	producer := mock.NewClient()
 	tp := kafka.TopicPartition{Topic: "unknown-topic", Partition: 0}
 
 	_, err = factory.CreateTask(tp, producer)
@@ -654,7 +614,7 @@ func TestTopologyTaskFactory_MultipleSourceTopics(t *testing.T) {
 	factory, err := task.NewTopologyTaskFactory(topo, logger.NewNoopLogger())
 	require.NoError(t, err)
 
-	producer := newMockProducer()
+	producer := mock.NewClient()
 
 	taskA, err := factory.CreateTask(kafka.TopicPartition{Topic: "topic-a", Partition: 0}, producer)
 	require.NoError(t, err)
@@ -671,14 +631,14 @@ func TestTopologyTaskFactory_MultipleSourceTopics(t *testing.T) {
 	}()
 
 	recA := newTestRecord("topic-a", 0, 0, "keyA", "valueA")
-	err = taskA.Process(recA)
+	err = taskA.Process(context.Background(), recA)
 	require.NoError(t, err)
 
 	recB := newTestRecord("topic-b", 0, 0, "keyB", "valueB")
-	err = taskB.Process(recB)
+	err = taskB.Process(context.Background(), recB)
 	require.NoError(t, err)
 
-	require.Len(t, producer.records, 2)
-	require.Equal(t, "output-a", producer.records[0].topic)
-	require.Equal(t, "output-b", producer.records[1].topic)
+	producer.AssertProducedCount(t, 2)
+	producer.AssertProducedCountForTopic(t, "output-a", 1)
+	producer.AssertProducedCountForTopic(t, "output-b", 1)
 }

@@ -1,6 +1,8 @@
 package builtins
 
 import (
+	"context"
+
 	"github.com/hugolhafner/go-streams/processor"
 	"github.com/hugolhafner/go-streams/record"
 )
@@ -19,8 +21,8 @@ func (p *PassthroughProcessor[K, V]) Init(ctx processor.Context[K, V]) {
 	p.ctx = ctx
 }
 
-func (p *PassthroughProcessor[K, V]) Process(r *record.Record[K, V]) error {
-	return p.ctx.Forward(r)
+func (p *PassthroughProcessor[K, V]) Process(ctx context.Context, r *record.Record[K, V]) error {
+	return p.ctx.Forward(ctx, r)
 }
 
 func (p *PassthroughProcessor[K, V]) Close() error {

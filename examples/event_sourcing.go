@@ -38,37 +38,39 @@ func EventSourcing() {
 	builder := kstream.NewStreamsBuilder()
 	events := kstream.StreamWithValueSerde(builder, "order-events", serde.JSON[Event]())
 	valid := kstream.Filter(
-		events, func(key []byte, event Event) bool {
-			return event.Type != ""
+		events, func(ctx context.Context, key []byte, event Event) (bool, error) {
+			return event.Type != "", nil
 		},
 	)
 
 	branches := kstream.Branch(
 		valid,
 		kstream.NewBranch(
-			"order-created", func(key []byte, event Event) bool {
-				return event.Type == "OrderCreated"
+			"order-created", func(ctx context.Context, key []byte, event Event) (bool, error) {
+				return event.Type == "OrderCreated", nil
 			},
 		),
 		kstream.NewBranch(
-			"order-updated", func(key []byte, event Event) bool {
-				return event.Type == "OrderUpdated"
+			"order-updated", func(ctx context.Context, key []byte, event Event) (bool, error) {
+				return event.Type == "OrderUpdated", nil
 			},
 		),
 	)
 
 	orderCreatedBranch := branches.Get("order-created")
 	orderCreated := kstream.MapValues(
-		orderCreatedBranch, func(event Event) OrderCreatedData {
+		orderCreatedBranch, func(ctx context.Context, event Event) (OrderCreatedData, error) {
 			var data OrderCreatedData
-			//nolint:errcheck
-			json.Unmarshal(event.Data, &data)
-			return data
+			if err := json.Unmarshal(event.Data, &data); err != nil {
+				return OrderCreatedData{}, err
+			}
+
+			return data, nil
 		},
 	)
 
 	kstream.ForEach(
-		orderCreated, func(key []byte, data OrderCreatedData) error {
+		orderCreated, func(ctx context.Context, key []byte, data OrderCreatedData) error {
 			sendOrderCreatedEmail(data)
 			return nil
 		},
@@ -76,16 +78,18 @@ func EventSourcing() {
 
 	orderUpdatedBranch := branches.Get("order-updated")
 	orderUpdated := kstream.MapValues(
-		orderUpdatedBranch, func(event Event) OrderUpdatedData {
+		orderUpdatedBranch, func(ctx context.Context, event Event) (OrderUpdatedData, error) {
 			var data OrderUpdatedData
-			//nolint:errcheck
-			json.Unmarshal(event.Data, &data)
-			return data
+			if err := json.Unmarshal(event.Data, &data); err != nil {
+				return OrderUpdatedData{}, err
+			}
+
+			return data, nil
 		},
 	)
 
 	kstream.ForEach(
-		orderUpdated, func(key []byte, data OrderUpdatedData) error {
+		orderUpdated, func(ctx context.Context, key []byte, data OrderUpdatedData) error {
 			processOrderUpdate(data)
 			return nil
 		},
@@ -93,9 +97,9 @@ func EventSourcing() {
 
 	kstream.To(
 		kstream.Map(
-			orderUpdated, func(key []byte, data OrderUpdatedData) ([]byte, []byte) {
+			orderUpdated, func(ctx context.Context, key []byte, data OrderUpdatedData) ([]byte, []byte, error) {
 				value, _ := json.Marshal(data)
-				return []byte(key), value
+				return key, value, nil
 			},
 		), "processed-order-created",
 	)
