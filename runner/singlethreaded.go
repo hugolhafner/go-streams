@@ -63,7 +63,16 @@ func (r *SingleThreaded) sourceTopics() []string {
 }
 
 func (r *SingleThreaded) shutdown() {
+	r.logger.Info("Shutting down runner")
 	r.committer.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
+	defer cancel()
+
+	if err := r.commitOffsets(ctx); err != nil {
+		r.logger.Error("Failed to commit offsets during shutdown", "error", err)
+	}
+	r.logger.Info("Shutdown complete")
 }
 
 func (r *SingleThreaded) commitOffsets(_ context.Context) error {
@@ -92,7 +101,14 @@ func (r *SingleThreaded) doCommit(ctx context.Context) {
 
 		sleep := b.Next(attempt)
 		r.logger.Error("Failed to commit offsets", "error", err, "attempt", attempt, "delay", sleep.String())
-		time.Sleep(sleep)
+
+		select {
+		case <-ctx.Done():
+			r.logger.Warn("Context closed, stopping commit retries")
+			return
+		case <-time.After(sleep):
+		}
+
 		attempt++
 	}
 }

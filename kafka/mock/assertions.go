@@ -192,7 +192,7 @@ func (c *Client) AssertHeader(t testing.TB, topic string, key []byte, headerKey 
 			require.True(t, ok, "record with key=%q missing header %q", string(key), headerKey)
 			require.True(
 				t, bytes.Equal(actual, headerValue), "record with key=%q has header %q=%q, expected %q", string(key),
-				headerKey, string(headerValue), headerValue,
+				headerKey, string(headerValue), string(actual),
 			)
 			return
 		}

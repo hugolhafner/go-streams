@@ -53,7 +53,11 @@ func NewPeriodicCommitter(opts ...PeriodicCommitterOption) *PeriodicCommitter {
 func (p *PeriodicCommitter) RecordProcessed(count int) {
 	p.count += count
 	if p.count > 0 && (p.count >= p.c.MaxCount || time.Since(p.lastCommit) >= p.c.MaxInterval) {
-		p.channel <- struct{}{}
+		select {
+		case p.channel <- struct{}{}:
+		default:
+		}
+
 		p.count = 0
 		p.lastCommit = time.Now()
 	}
