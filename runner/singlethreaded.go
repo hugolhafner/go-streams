@@ -142,9 +142,12 @@ func (r *SingleThreaded) Run(ctx context.Context) error {
 				continue
 			}
 
-			// TODO: Does this need to return an error?
-			// nolint:errcheck
-			t.Process(record)
+			if err := t.Process(ctx, record); err != nil {
+				r.logger.Error(
+					"Failed to process record", "topic_partition",
+					record.TopicPartition(), "offset", record.Offset, "error", err,
+				)
+			}
 		}
 
 		r.committer.RecordProcessed(len(records))

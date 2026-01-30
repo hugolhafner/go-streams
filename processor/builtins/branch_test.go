@@ -1,6 +1,8 @@
 package builtins_test
 
 import (
+	"context"
+	"errors"
 	"testing"
 
 	"github.com/hugolhafner/go-streams/processor"
@@ -20,9 +22,9 @@ func TestBranchProcessor_Process(t *testing.T) {
 		{
 			name: "single branch match",
 			processor: *builtins.NewBranchProcessor(
-				[]func(int, int) bool{
-					func(k, v int) bool { return v%2 == 0 },
-					func(k, v int) bool { return v > 10 },
+				[]builtins.PredicateFunc[int, int]{
+					func(ctx context.Context, k, v int) (bool, error) { return v%2 == 0, nil },
+					func(ctx context.Context, k, v int) (bool, error) { return v > 10, nil },
 				},
 				[]string{"even", "greater_than_10"},
 			),
@@ -32,9 +34,9 @@ func TestBranchProcessor_Process(t *testing.T) {
 		{
 			name: "single branch match greater than 10",
 			processor: *builtins.NewBranchProcessor(
-				[]func(int, int) bool{
-					func(k, v int) bool { return v%2 == 0 },
-					func(k, v int) bool { return v > 10 },
+				[]builtins.PredicateFunc[int, int]{
+					func(ctx context.Context, k, v int) (bool, error) { return v%2 == 0, nil },
+					func(ctx context.Context, k, v int) (bool, error) { return v > 10, nil },
 				},
 				[]string{"even", "greater_than_10"},
 			),
@@ -44,9 +46,9 @@ func TestBranchProcessor_Process(t *testing.T) {
 		{
 			name: "no branch match",
 			processor: *builtins.NewBranchProcessor(
-				[]func(int, int) bool{
-					func(k, v int) bool { return v%2 == 0 },
-					func(k, v int) bool { return v > 10 },
+				[]builtins.PredicateFunc[int, int]{
+					func(ctx context.Context, k, v int) (bool, error) { return v%2 == 0, nil },
+					func(ctx context.Context, k, v int) (bool, error) { return v > 10, nil },
 				},
 				[]string{"even", "greater_than_10"},
 			),
@@ -59,14 +61,14 @@ func TestBranchProcessor_Process(t *testing.T) {
 		t.Run(
 			tt.name, func(t *testing.T) {
 				ctx := processor.NewMockContext[int, int]()
-				ctx.On("ForwardTo", mock.AnythingOfType("string"), tt.record).Return(nil)
+				ctx.On("ForwardTo", mock.Anything, mock.AnythingOfType("string"), tt.record).Return(nil)
 				tt.processor.Init(ctx)
 
-				err := tt.processor.Process(tt.record)
+				err := tt.processor.Process(context.Background(), tt.record)
 				require.NoError(t, err)
 
 				for _, branch := range tt.expectedBranches {
-					ctx.AssertCalled(t, "ForwardTo", branch, tt.record)
+					ctx.AssertCalled(t, "ForwardTo", mock.Anything, branch, tt.record)
 				}
 
 				if len(tt.expectedBranches) == 0 {
@@ -75,4 +77,82 @@ func TestBranchProcessor_Process(t *testing.T) {
 			},
 		)
 	}
+}
+
+func TestBranchProcessor_PredicateError(t *testing.T) {
+	t.Run(
+		"first predicate error is propagated", func(t *testing.T) {
+			predicates := []builtins.PredicateFunc[int, int]{
+				func(ctx context.Context, k, v int) (bool, error) {
+					return false, errUserFunction
+				},
+				func(ctx context.Context, k, v int) (bool, error) {
+					return true, nil
+				},
+			}
+			branches := []string{"branch1", "branch2"}
+
+			p := builtins.NewBranchProcessor(predicates, branches)
+			ctx := processor.NewMockContext[int, int]()
+			p.Init(ctx)
+
+			input := &record.Record[int, int]{Key: 1, Value: 2}
+			err := p.Process(context.Background(), input)
+
+			require.Error(t, err)
+			require.ErrorIs(t, err, errUserFunction)
+			ctx.AssertNotCalled(t, "ForwardTo", mock.Anything, mock.Anything, mock.Anything)
+		},
+	)
+
+	t.Run(
+		"second predicate error after first passes", func(t *testing.T) {
+			predicates := []builtins.PredicateFunc[int, int]{
+				func(ctx context.Context, k, v int) (bool, error) {
+					return false, nil // first predicate passes but returns false
+				},
+				func(ctx context.Context, k, v int) (bool, error) {
+					return false, errUserFunction // second predicate errors
+				},
+			}
+			branches := []string{"branch1", "branch2"}
+
+			p := builtins.NewBranchProcessor(predicates, branches)
+			ctx := processor.NewMockContext[int, int]()
+			p.Init(ctx)
+
+			input := &record.Record[int, int]{Key: 1, Value: 2}
+			err := p.Process(context.Background(), input)
+
+			require.Error(t, err)
+			require.ErrorIs(t, err, errUserFunction)
+			ctx.AssertNotCalled(t, "ForwardTo", mock.Anything, mock.Anything, mock.Anything)
+		},
+	)
+}
+
+func TestBranchProcessor_ForwardToError(t *testing.T) {
+	t.Run(
+		"forwardTo error is propagated", func(t *testing.T) {
+			forwardErr := errors.New("forwardTo failed")
+
+			predicates := []builtins.PredicateFunc[int, int]{
+				func(ctx context.Context, k, v int) (bool, error) {
+					return true, nil
+				},
+			}
+			branches := []string{"branch1"}
+
+			p := builtins.NewBranchProcessor(predicates, branches)
+			ctx := processor.NewMockContext[int, int]()
+			ctx.On("ForwardTo", mock.Anything, "branch1", mock.Anything).Return(forwardErr)
+			p.Init(ctx)
+
+			input := &record.Record[int, int]{Key: 1, Value: 2}
+			err := p.Process(context.Background(), input)
+
+			require.Error(t, err)
+			require.ErrorIs(t, err, forwardErr)
+		},
+	)
 }
