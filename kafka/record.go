@@ -22,6 +22,32 @@ func (r ConsumerRecord) TopicPartition() TopicPartition {
 	}
 }
 
+func (r ConsumerRecord) Copy() ConsumerRecord {
+	headersCopy := make(map[string][]byte, len(r.Headers))
+	for k, v := range r.Headers {
+		vCopy := make([]byte, len(v))
+		copy(vCopy, v)
+		headersCopy[k] = vCopy
+	}
+
+	keyCopy := make([]byte, len(r.Key))
+	copy(keyCopy, r.Key)
+
+	valueCopy := make([]byte, len(r.Value))
+	copy(valueCopy, r.Value)
+
+	return ConsumerRecord{
+		Key:         keyCopy,
+		Value:       valueCopy,
+		Headers:     headersCopy,
+		Topic:       r.Topic,
+		Partition:   r.Partition,
+		Offset:      r.Offset,
+		LeaderEpoch: r.LeaderEpoch,
+		Timestamp:   r.Timestamp,
+	}
+}
+
 type TopicPartition struct {
 	Topic     string
 	Partition int32

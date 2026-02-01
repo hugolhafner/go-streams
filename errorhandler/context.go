@@ -24,7 +24,7 @@ type ErrorContext struct {
 
 func NewErrorContext(record kafka.ConsumerRecord, err error) ErrorContext {
 	return ErrorContext{
-		Record:  record,
+		Record:  record.Copy(),
 		Error:   err,
 		Attempt: 1,
 	}

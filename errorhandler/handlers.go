@@ -106,5 +106,4 @@ func ActionLogger(l logger.Logger, level logger.LogLevel, next Handler) Handler 
 			return action
 		},
 	)
-
 }

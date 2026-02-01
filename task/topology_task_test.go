@@ -103,7 +103,7 @@ func TestTopologyTask_BasicProcessing(t *testing.T) {
 	factory, err := task.NewTopologyTaskFactory(topo, logger.NewNoopLogger())
 	require.NoError(t, err)
 
-	producer := mock.NewClient()
+	producer := mockkafka.NewClient()
 	tp := kafka.TopicPartition{Topic: "input", Partition: 0}
 
 	tsk, err := factory.CreateTask(tp, producer)
@@ -139,7 +139,7 @@ func TestTopologyTask_OffsetTracking(t *testing.T) {
 	factory, err := task.NewTopologyTaskFactory(topo, logger.NewNoopLogger())
 	require.NoError(t, err)
 
-	producer := mock.NewClient()
+	producer := mockkafka.NewClient()
 	tp := kafka.TopicPartition{Topic: "input", Partition: 0}
 
 	tsk, err := factory.CreateTask(tp, producer)
@@ -195,7 +195,7 @@ func TestTopologyTask_FilterProcessing(t *testing.T) {
 	factory, err := task.NewTopologyTaskFactory(topo, logger.NewNoopLogger())
 	require.NoError(t, err)
 
-	producer := mock.NewClient()
+	producer := mockkafka.NewClient()
 	tp := kafka.TopicPartition{Topic: "input", Partition: 0}
 
 	tsk, err := factory.CreateTask(tp, producer)
@@ -247,7 +247,7 @@ func TestTopologyTask_MapTransformation(t *testing.T) {
 	factory, err := task.NewTopologyTaskFactory(topo, logger.NewNoopLogger())
 	require.NoError(t, err)
 
-	producer := mock.NewClient()
+	producer := mockkafka.NewClient()
 	tp := kafka.TopicPartition{Topic: "input", Partition: 0}
 
 	tsk, err := factory.CreateTask(tp, producer)
@@ -299,7 +299,7 @@ func TestTopologyTask_ChainedProcessors(t *testing.T) {
 	factory, err := task.NewTopologyTaskFactory(topo, logger.NewNoopLogger())
 	require.NoError(t, err)
 
-	producer := mock.NewClient()
+	producer := mockkafka.NewClient()
 	tp := kafka.TopicPartition{Topic: "input", Partition: 0}
 
 	tsk, err := factory.CreateTask(tp, producer)
@@ -346,7 +346,7 @@ func TestTopologyTask_PanicRecovery(t *testing.T) {
 	factory, err := task.NewTopologyTaskFactory(topo, logger.NewNoopLogger())
 	require.NoError(t, err)
 
-	producer := mock.NewClient()
+	producer := mockkafka.NewClient()
 	tp := kafka.TopicPartition{Topic: "input", Partition: 0}
 
 	tsk, err := factory.CreateTask(tp, producer)
@@ -385,7 +385,7 @@ func TestTopologyTask_DeserializationError(t *testing.T) {
 	factory, err := task.NewTopologyTaskFactory(topo, logger.NewNoopLogger())
 	require.NoError(t, err)
 
-	producer := mock.NewClient()
+	producer := mockkafka.NewClient()
 	tp := kafka.TopicPartition{Topic: "input", Partition: 0}
 
 	tsk, err := factory.CreateTask(tp, producer)
@@ -430,7 +430,7 @@ func TestTopologyTask_ProducerError(t *testing.T) {
 	factory, err := task.NewTopologyTaskFactory(topo, logger.NewNoopLogger())
 	require.NoError(t, err)
 
-	producer := mock.NewClient(mock.WithSendError(errors.New("kafka unavailable")))
+	producer := mockkafka.NewClient(mockkafka.WithSendError(errors.New("kafka unavailable")))
 
 	tp := kafka.TopicPartition{Topic: "input", Partition: 0}
 	tsk, err := factory.CreateTask(tp, producer)
@@ -465,7 +465,7 @@ func TestTopologyTask_Partition(t *testing.T) {
 	factory, err := task.NewTopologyTaskFactory(topo, logger.NewNoopLogger())
 	require.NoError(t, err)
 
-	producer := mock.NewClient()
+	producer := mockkafka.NewClient()
 	tp := kafka.TopicPartition{Topic: "my-topic", Partition: 7}
 
 	tsk, err := factory.CreateTask(tp, producer)
@@ -490,7 +490,7 @@ func TestTopologyTask_InitialOffsetState(t *testing.T) {
 	factory, err := task.NewTopologyTaskFactory(topo, logger.NewNoopLogger())
 	require.NoError(t, err)
 
-	producer := mock.NewClient()
+	producer := mockkafka.NewClient()
 	tp := kafka.TopicPartition{Topic: "input", Partition: 0}
 
 	tsk, err := factory.CreateTask(tp, producer)
@@ -521,7 +521,7 @@ func TestTopologyTask_HeaderPreservation(t *testing.T) {
 	factory, err := task.NewTopologyTaskFactory(topo, logger.NewNoopLogger())
 	require.NoError(t, err)
 
-	producer := mock.NewClient()
+	producer := mockkafka.NewClient()
 	tp := kafka.TopicPartition{Topic: "input", Partition: 0}
 
 	tsk, err := factory.CreateTask(tp, producer)
@@ -574,7 +574,7 @@ func TestTopologyTaskFactory_UnknownSourceTopic(t *testing.T) {
 	factory, err := task.NewTopologyTaskFactory(topo, logger.NewNoopLogger())
 	require.NoError(t, err)
 
-	producer := mock.NewClient()
+	producer := mockkafka.NewClient()
 	tp := kafka.TopicPartition{Topic: "unknown-topic", Partition: 0}
 
 	_, err = factory.CreateTask(tp, producer)
@@ -616,7 +616,7 @@ func TestTopologyTaskFactory_MultipleSourceTopics(t *testing.T) {
 	factory, err := task.NewTopologyTaskFactory(topo, logger.NewNoopLogger())
 	require.NoError(t, err)
 
-	producer := mock.NewClient()
+	producer := mockkafka.NewClient()
 
 	taskA, err := factory.CreateTask(kafka.TopicPartition{Topic: "topic-a", Partition: 0}, producer)
 	require.NoError(t, err)

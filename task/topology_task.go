@@ -74,7 +74,7 @@ func (t *TopologyTask) processSafe(ctx context.Context, rec kafka.ConsumerRecord
 	for _, childName := range children {
 		t.logger.Debug("Forwarding record to child node", "node", childName)
 		if err := t.processAt(ctx, childName, untypedRec); err != nil {
-			return err
+			return NewProcessError(err, childName)
 		}
 	}
 

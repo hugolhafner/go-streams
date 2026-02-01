@@ -1,4 +1,4 @@
-package mock
+package mockkafka
 
 import (
 	"context"

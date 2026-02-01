@@ -149,9 +149,13 @@ func (r *SingleThreaded) processRecord(ctx context.Context, record kafka.Consume
 	for {
 		err := t.Process(ctx, record)
 		if err == nil {
+			t.RecordOffset(record)
 			return nil
 		}
 
+		if pErr, ok := task.AsProcessError(err); ok {
+			ec = ec.WithNodeName(pErr.Node)
+		}
 		ec = ec.WithError(err)
 
 		action := r.errorHandler.Handle(ctx, ec)
@@ -162,12 +166,33 @@ func (r *SingleThreaded) processRecord(ctx context.Context, record kafka.Consume
 			ec = ec.IncrementAttempt()
 			continue
 		case errorhandler.ActionSendToDLQ:
-			r.logger.Warn("TODO: Send to DLQ not implemented, continuing", "record", record)
+			r.logger.Warn(
+				"TODO: Send record to DLQ pending implementation",
+				"error", ec.Error,
+				"key", ec.Record.Key,
+				"topic", ec.Record.Topic,
+				"offset", ec.Record.Offset,
+				"partition", ec.Record.Partition,
+				"attempt", ec.Attempt,
+				"node", ec.NodeName,
+			)
 			t.RecordOffset(record)
 			return nil
 		case errorhandler.ActionContinue:
 			t.RecordOffset(record)
 			return nil
+		default:
+			r.logger.Error(
+				"Unknown error handler action, failing record",
+				"error", ec.Error,
+				"key", ec.Record.Key,
+				"topic", ec.Record.Topic,
+				"offset", ec.Record.Offset,
+				"partition", ec.Record.Partition,
+				"attempt", ec.Attempt,
+				"node", ec.NodeName,
+			)
+			return err
 		}
 	}
 }
