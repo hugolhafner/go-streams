@@ -72,7 +72,11 @@ func NewApplicationWithConfig(client kafka.Client, topology *topology.Topology, 
 }
 
 func (a *Application) Run(ctx context.Context) error {
-	return a.RunWith(ctx, runner.NewSingleThreadedRunner())
+	return a.RunWith(
+		ctx, runner.NewSingleThreadedRunner(
+			runner.WithLogger(a.logger),
+		),
+	)
 }
 
 func (a *Application) RunWith(ctx context.Context, factory runner.Factory) error {
@@ -86,7 +90,7 @@ func (a *Application) RunWith(ctx context.Context, factory runner.Factory) error
 		return fmt.Errorf("failed to create task factory: %w", err)
 	}
 
-	r, err := factory(a.topology, taskFactory, a.client, a.client, a.logger)
+	r, err := factory(a.topology, taskFactory, a.client, a.client)
 	if err != nil {
 		return fmt.Errorf("failed to create runner: %w", err)
 	}
@@ -108,13 +112,15 @@ func (a *Application) RunWith(ctx context.Context, factory runner.Factory) error
 }
 
 func (a *Application) Close() {
-	a.closeOnce.Do(func() {
-		a.mu.Lock()
-		defer a.mu.Unlock()
+	a.closeOnce.Do(
+		func() {
+			a.mu.Lock()
+			defer a.mu.Unlock()
 
-		a.running = false
-		close(a.closedCh)
-	})
+			a.running = false
+			close(a.closedCh)
+		},
+	)
 }
 
 func (a *Application) startRunning() error {

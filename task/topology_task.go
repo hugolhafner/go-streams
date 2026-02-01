@@ -82,14 +82,14 @@ func (t *TopologyTask) processSafe(ctx context.Context, rec kafka.ConsumerRecord
 }
 
 func (t *TopologyTask) Process(ctx context.Context, rec kafka.ConsumerRecord) error {
-	err := t.processSafe(ctx, rec)
+	return t.processSafe(ctx, rec)
+}
 
+func (t *TopologyTask) RecordOffset(rec kafka.ConsumerRecord) {
 	t.offset = kafka.Offset{
 		Offset:      rec.Offset + 1,
 		LeaderEpoch: rec.LeaderEpoch,
 	}
-
-	return err
 }
 
 func (t *TopologyTask) processAt(ctx context.Context, nodeName string, rec *record.UntypedRecord) error {

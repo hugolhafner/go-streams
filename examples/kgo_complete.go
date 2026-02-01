@@ -5,10 +5,14 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
+	"github.com/hugolhafner/dskit/backoff"
 	"github.com/hugolhafner/go-streams"
+	"github.com/hugolhafner/go-streams/errorhandler"
 	"github.com/hugolhafner/go-streams/kafka"
 	"github.com/hugolhafner/go-streams/kstream"
+	"github.com/hugolhafner/go-streams/logger"
 	"github.com/hugolhafner/go-streams/plugins/zaplogger"
 	"github.com/hugolhafner/go-streams/runner"
 	"github.com/hugolhafner/go-streams/serde"
@@ -80,7 +84,20 @@ func KgoComplete() {
 		app.Close()
 	}()
 
-	if err := app.RunWith(context.Background(), runner.NewSingleThreadedRunner()); err != nil {
+	if err := app.RunWith(
+		context.Background(), runner.NewSingleThreadedRunner(
+			runner.WithErrorHandler(
+				errorhandler.ActionLogger(
+					klogger,
+					logger.InfoLevel,
+					errorhandler.WithRetry(
+						3, backoff.NewFixed(time.Second),
+						errorhandler.LogAndContinue(klogger),
+					),
+				),
+			),
+		),
+	); err != nil {
 		panic(err)
 	}
 }

@@ -4,7 +4,6 @@ import (
 	"context"
 
 	"github.com/hugolhafner/go-streams/kafka"
-	"github.com/hugolhafner/go-streams/logger"
 	"github.com/hugolhafner/go-streams/task"
 	"github.com/hugolhafner/go-streams/topology"
 )
@@ -15,5 +14,4 @@ type Runner interface {
 
 type Factory = func(
 	t *topology.Topology, f task.Factory, consumer kafka.Consumer, producer kafka.Producer,
-	logger logger.Logger,
 ) (Runner, error)

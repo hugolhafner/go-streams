@@ -7,6 +7,7 @@ import (
 
 	"github.com/hugolhafner/dskit/backoff"
 	"github.com/hugolhafner/go-streams/committer"
+	"github.com/hugolhafner/go-streams/errorhandler"
 	"github.com/hugolhafner/go-streams/kafka"
 	"github.com/hugolhafner/go-streams/logger"
 	"github.com/hugolhafner/go-streams/task"
@@ -20,10 +21,10 @@ type SingleThreaded struct {
 	producer    kafka.Producer
 	taskManager task.Manager
 	topology    *topology.Topology
-	config      SingleThreadedConfig
 
-	committer committer.Committer
-	logger    logger.Logger
+	errorHandler errorhandler.Handler
+	committer    committer.Committer
+	logger       logger.Logger
 }
 
 func NewSingleThreadedRunner(
@@ -36,16 +37,15 @@ func NewSingleThreadedRunner(
 
 	return func(
 		t *topology.Topology, f task.Factory, consumer kafka.Consumer, producer kafka.Producer,
-		logger logger.Logger,
 	) (Runner, error) {
 		return &SingleThreaded{
-			consumer:    consumer,
-			producer:    producer,
-			taskManager: task.NewManager(f, producer, logger),
-			topology:    t,
-			config:      config,
-			committer:   config.CommitterFactory(),
-			logger: logger.
+			consumer:     consumer,
+			producer:     producer,
+			taskManager:  task.NewManager(f, producer, config.Logger),
+			topology:     t,
+			committer:    config.CommitterFactory(),
+			errorHandler: config.ErrorHandler,
+			logger: config.Logger.
 				With("component", "runner").
 				With("runner", "single-threaded"),
 		}, nil
@@ -124,27 +124,52 @@ func (r *SingleThreaded) doPoll(ctx context.Context) error {
 	r.logger.Debug("Received records", "records", len(records))
 
 	for _, record := range records {
-		t, ok := r.taskManager.TaskFor(record.TopicPartition())
-		if !ok {
-			r.logger.Warn(
-				"No task found for topic partition", "topic_partition",
-				record.TopicPartition(),
-			)
-			// TODO: Is this safe?
-			continue
-		}
-
-		// TODO: Add error custom handling support
-		if err := t.Process(ctx, record); err != nil {
-			r.logger.Error(
-				"Failed to process record", "topic_partition",
-				record.TopicPartition(), "offset", record.Offset, "error", err,
-			)
+		// only errors that should stop the runner are returned here
+		if err := r.processRecord(ctx, record); err != nil {
+			return fmt.Errorf("fatal error processing record: %w", err)
 		}
 	}
 
 	r.committer.RecordProcessed(len(records))
 	return nil
+}
+
+func (r *SingleThreaded) processRecord(ctx context.Context, record kafka.ConsumerRecord) error {
+	t, ok := r.taskManager.TaskFor(record.TopicPartition())
+	if !ok {
+		r.logger.Warn(
+			"No task found for topic partition", "topic_partition",
+			record.TopicPartition(),
+		)
+		return nil
+	}
+
+	ec := errorhandler.NewErrorContext(record, nil)
+
+	for {
+		err := t.Process(ctx, record)
+		if err == nil {
+			return nil
+		}
+
+		ec = ec.WithError(err)
+
+		action := r.errorHandler.Handle(ctx, ec)
+		switch action {
+		case errorhandler.ActionFail:
+			return err
+		case errorhandler.ActionRetry:
+			ec = ec.IncrementAttempt()
+			continue
+		case errorhandler.ActionSendToDLQ:
+			r.logger.Warn("TODO: Send to DLQ not implemented, continuing", "record", record)
+			t.RecordOffset(record)
+			return nil
+		case errorhandler.ActionContinue:
+			t.RecordOffset(record)
+			return nil
+		}
+	}
 }
 
 func (r *SingleThreaded) Run(ctx context.Context) error {
@@ -169,7 +194,7 @@ func (r *SingleThreaded) Run(ctx context.Context) error {
 			r.doCommit(ctx)
 		default:
 			if err := r.doPoll(ctx); err != nil {
-				r.logger.Warn("Failed to poll for records", "error", err)
+				r.logger.Warn("Failed during record poll", "error", err)
 				return err
 			}
 		}
