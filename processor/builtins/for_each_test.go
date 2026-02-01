@@ -1,3 +1,5 @@
+//go:build unit
+
 package builtins_test
 
 import (
