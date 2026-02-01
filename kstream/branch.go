@@ -1,6 +1,8 @@
 package kstream
 
 import (
+	"context"
+
 	"github.com/hugolhafner/go-streams/processor"
 	"github.com/hugolhafner/go-streams/processor/builtins"
 )
@@ -18,11 +20,11 @@ func (b BranchOutput[K, V]) Get(name string) KStream[K, V] {
 // BranchConfig defines a single branch with a name and predicate
 type BranchConfig[K, V any] struct {
 	Name      string
-	Predicate func(K, V) bool
+	Predicate builtins.PredicateFunc[K, V]
 }
 
 // NewBranch creates a BranchConfig
-func NewBranch[K, V any](name string, predicate func(K, V) bool) BranchConfig[K, V] {
+func NewBranch[K, V any](name string, predicate builtins.PredicateFunc[K, V]) BranchConfig[K, V] {
 	return BranchConfig[K, V]{
 		Name:      name,
 		Predicate: predicate,
@@ -33,7 +35,7 @@ func NewBranch[K, V any](name string, predicate func(K, V) bool) BranchConfig[K,
 func DefaultBranch[K, V any](name string) BranchConfig[K, V] {
 	return BranchConfig[K, V]{
 		Name:      name,
-		Predicate: func(K, V) bool { return true },
+		Predicate: func(context.Context, K, V) (bool, error) { return true, nil },
 	}
 }
 
@@ -42,7 +44,7 @@ func DefaultBranch[K, V any](name string) BranchConfig[K, V] {
 func Branch[K, V any](s KStream[K, V], branches ...BranchConfig[K, V]) BranchOutput[K, V] {
 	branchNodeName := s.builder.nextName("BRANCH")
 
-	predicates := make([]func(K, V) bool, len(branches))
+	predicates := make([]builtins.PredicateFunc[K, V], len(branches))
 	names := make([]string, len(branches))
 	for i, b := range branches {
 		predicates[i] = b.Predicate

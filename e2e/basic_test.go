@@ -1,4 +1,5 @@
 //go:build e2e
+
 package e2e
 
 import (
@@ -27,8 +28,8 @@ func TestE2E_SimpleTopology_ProcessesRecords(t *testing.T) {
 	builder := kstream.NewStreamsBuilder()
 	source := kstream.StreamWithSerde(builder, inputTopic, serde.String(), serde.String())
 	mapped := kstream.Map(
-		source, func(key, value string) (string, string) {
-			return key, strings.ToUpper(value)
+		source, func(_ context.Context, key, value string) (string, string, error) {
+			return key, strings.ToUpper(value), nil
 		},
 	)
 	kstream.ToWithSerde(mapped, outputTopic, serde.String(), serde.String())
@@ -82,8 +83,8 @@ func TestE2E_FilterTopology_DropsRecords(t *testing.T) {
 	builder := kstream.NewStreamsBuilder()
 	source := kstream.StreamWithSerde(builder, inputTopic, serde.String(), serde.String())
 	filtered := kstream.Filter(
-		source, func(key, value string) bool {
-			return len(value) > 5
+		source, func(_ context.Context, key, value string) (bool, error) {
+			return len(value) > 5, nil
 		},
 	)
 	kstream.ToWithSerde(filtered, outputTopic, serde.String(), serde.String())
@@ -140,17 +141,17 @@ func TestE2E_ChainedProcessors_MapThenFilter(t *testing.T) {
 	source := kstream.StreamWithSerde(builder, inputTopic, serde.String(), serde.String())
 
 	mapped := kstream.Map(
-		source, func(key, value string) (string, string) {
+		source, func(_ context.Context, key, value string) (string, string, error) {
 			if strings.HasPrefix(key, "important") {
-				return key, "IMPORTANT: " + value
+				return key, "IMPORTANT: " + value, nil
 			}
-			return key, "normal: " + value
+			return key, "normal: " + value, nil
 		},
 	)
 
 	filtered := kstream.Filter(
-		mapped, func(key, value string) bool {
-			return strings.HasPrefix(value, "IMPORTANT:")
+		mapped, func(_ context.Context, key, value string) (bool, error) {
+			return strings.HasPrefix(value, "IMPORTANT:"), nil
 		},
 	)
 
@@ -210,8 +211,8 @@ func TestE2E_BranchTopology_SplitsStream(t *testing.T) {
 	branches := kstream.Branch(
 		source,
 		kstream.NewBranch(
-			"high", func(key, value string) bool {
-				return strings.HasPrefix(key, "high")
+			"high", func(_ context.Context, key, value string) (bool, error) {
+				return strings.HasPrefix(key, "high"), nil
 			},
 		),
 		kstream.DefaultBranch[string, string]("low"),
@@ -271,7 +272,11 @@ func TestE2E_EmptyInput_NoOutput(t *testing.T) {
 
 	builder := kstream.NewStreamsBuilder()
 	source := kstream.StreamWithSerde(builder, inputTopic, serde.String(), serde.String())
-	mapped := kstream.MapValues(source, strings.ToUpper)
+	mapped := kstream.MapValues(
+		source, func(_ context.Context, value string) (string, error) {
+			return strings.ToUpper(value), nil
+		},
+	)
 	kstream.ToWithSerde(mapped, outputTopic, serde.String(), serde.String())
 
 	client, err := kafka.NewKgoClient(

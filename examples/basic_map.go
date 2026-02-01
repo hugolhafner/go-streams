@@ -25,17 +25,17 @@ func BasicMap() {
 	builder := kstream.NewStreamsBuilder()
 	parsed := kstream.StreamWithValueSerde(builder, "orders", serde.JSON[Order]())
 	valid := kstream.Filter(
-		parsed, func(k []byte, v Order) bool {
-			return v.ID != "" && v.Amount > 0
+		parsed, func(ctx context.Context, k []byte, v Order) (bool, error) {
+			return v.ID != "" && v.Amount > 0, nil
 		},
 	)
 
 	summary := kstream.Map(
-		valid, func(k []byte, v Order) (string, OrderSummary) {
+		valid, func(ctx context.Context, k []byte, v Order) (string, OrderSummary, error) {
 			return v.UserID, OrderSummary{
 				OrderID: v.ID,
 				Amount:  v.Amount,
-			}
+			}, nil
 		},
 	)
 

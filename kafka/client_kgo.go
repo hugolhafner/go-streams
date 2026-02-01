@@ -88,8 +88,7 @@ func NewKgoClient(opts ...KgoOption) (*KgoClient, error) {
 		kgo.SessionTimeout(cfg.SessionTimeout),
 		kgo.HeartbeatInterval(cfg.HeartbeatInterval),
 		// TODO: Metrics support
-		// TODO: Support for block rebalance on poll
-		// kgo.BlockRebalanceOnPoll(),
+		kgo.BlockRebalanceOnPoll(),
 	}
 
 	client, err := kgo.NewClient(kgoOpts...)
@@ -151,6 +150,8 @@ func (k *KgoClient) Subscribe(topics []string, rebalanceCb RebalanceCallback) er
 }
 
 func (k *KgoClient) Poll(ctx context.Context) ([]ConsumerRecord, error) {
+	k.client.AllowRebalance()
+
 	ctx, cancel := context.WithTimeout(ctx, k.config.PollTimeout)
 	defer cancel()
 
@@ -225,7 +226,7 @@ func (k *KgoClient) Ping(ctx context.Context) error {
 }
 
 func (k *KgoClient) Close() {
-	k.client.Close()
+	k.client.CloseAllowingRebalance()
 }
 
 func convertRecords(records []*kgo.Record) []ConsumerRecord {

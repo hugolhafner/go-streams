@@ -1,6 +1,10 @@
+//go:build unit
+
 package builtins_test
 
 import (
+	"context"
+	"errors"
 	"testing"
 
 	"github.com/hugolhafner/go-streams/processor"
@@ -15,13 +19,13 @@ func TestMapProcessor_Process(t *testing.T) {
 		"map primitive types", func(t *testing.T) {
 			tests := []struct {
 				name     string
-				mapper   func(int, int) (int, int)
+				mapper   builtins.MapFunc[int, int, int, int]
 				input    *record.Record[int, int]
 				expected *record.Record[int, int]
 			}{
 				{
 					name:   "double key and value",
-					mapper: func(k, v int) (int, int) { return k * 2, v * 2 },
+					mapper: func(ctx context.Context, k, v int) (int, int, error) { return k * 2, v * 2, nil },
 					input: &record.Record[int, int]{
 						Key:   1,
 						Value: 2,
@@ -33,7 +37,7 @@ func TestMapProcessor_Process(t *testing.T) {
 				},
 				{
 					name:   "increment key and value",
-					mapper: func(k, v int) (int, int) { return k + 1, v + 1 },
+					mapper: func(ctx context.Context, k, v int) (int, int, error) { return k + 1, v + 1, nil },
 					input: &record.Record[int, int]{
 						Key:   3,
 						Value: 4,
@@ -50,13 +54,14 @@ func TestMapProcessor_Process(t *testing.T) {
 					tt.name, func(t *testing.T) {
 						p := builtins.NewMapProcessor(tt.mapper)
 						ctx := processor.NewMockContext[int, int]()
-						ctx.Mock.On("Forward", mock.Anything).Return(nil)
+						ctx.Mock.On("Forward", mock.Anything, mock.Anything).Return(nil)
 						p.Init(ctx)
 
-						err := p.Process(tt.input)
+						err := p.Process(context.Background(), tt.input)
 						require.NoError(t, err)
 						ctx.AssertCalled(
 							t, "Forward",
+							mock.Anything,
 							&record.Record[int, int]{
 								Key:      tt.expected.Key,
 								Value:    tt.expected.Value,
@@ -82,17 +87,17 @@ func TestMapProcessor_Process(t *testing.T) {
 
 			tests := []struct {
 				name     string
-				mapper   func(string, Input) (string, Output)
+				mapper   builtins.MapFunc[string, Input, string, Output]
 				input    *record.Record[string, Input]
 				expected *record.Record[string, Output]
 			}{
 				{
 					name: "map Input to Output",
-					mapper: func(k string, v Input) (string, Output) {
+					mapper: func(ctx context.Context, k string, v Input) (string, Output, error) {
 						return k + "_mapped", Output{
 							X: v.B,
 							Y: v.A * 10,
-						}
+						}, nil
 					},
 					input: &record.Record[string, Input]{
 						Key: "key1",
@@ -116,13 +121,13 @@ func TestMapProcessor_Process(t *testing.T) {
 					tt.name, func(t *testing.T) {
 						p := builtins.NewMapProcessor(tt.mapper)
 						ctx := processor.NewMockContext[string, Output]()
-						ctx.Mock.On("Forward", mock.Anything).Return(nil)
+						ctx.Mock.On("Forward", mock.Anything, mock.Anything).Return(nil)
 						p.Init(ctx)
 
-						err := p.Process(tt.input)
+						err := p.Process(context.Background(), tt.input)
 						require.NoError(t, err)
 						ctx.AssertCalled(
-							t, "Forward",
+							t, "Forward", mock.Anything,
 							&record.Record[string, Output]{
 								Key:      tt.expected.Key,
 								Value:    tt.expected.Value,
@@ -132,6 +137,72 @@ func TestMapProcessor_Process(t *testing.T) {
 					},
 				)
 			}
+		},
+	)
+}
+
+func TestMapProcessor_MapperError(t *testing.T) {
+	t.Run(
+		"mapper error is propagated", func(t *testing.T) {
+			mapper := func(ctx context.Context, k, v int) (int, int, error) {
+				return 0, 0, errUserFunction
+			}
+
+			p := builtins.NewMapProcessor(mapper)
+			ctx := processor.NewMockContext[int, int]()
+			p.Init(ctx)
+
+			input := &record.Record[int, int]{Key: 1, Value: 2}
+			err := p.Process(context.Background(), input)
+
+			require.Error(t, err)
+			require.ErrorIs(t, err, errUserFunction)
+			ctx.AssertNotCalled(t, "Forward", mock.Anything, mock.Anything)
+		},
+	)
+
+	t.Run(
+		"mapper error with type transformation", func(t *testing.T) {
+			mapper := func(ctx context.Context, k string, v int) (string, string, error) {
+				if v < 0 {
+					return "", "", errors.New("negative values not allowed")
+				}
+				return k, "transformed", nil
+			}
+
+			p := builtins.NewMapProcessor(mapper)
+			ctx := processor.NewMockContext[string, string]()
+			p.Init(ctx)
+
+			input := &record.Record[string, int]{Key: "key", Value: -1}
+			err := p.Process(context.Background(), input)
+
+			require.Error(t, err)
+			require.Contains(t, err.Error(), "negative values not allowed")
+			ctx.AssertNotCalled(t, "Forward", mock.Anything, mock.Anything)
+		},
+	)
+}
+
+func TestMapProcessor_ForwardError(t *testing.T) {
+	t.Run(
+		"forward error is propagated", func(t *testing.T) {
+			forwardErr := errors.New("forward failed")
+
+			mapper := func(ctx context.Context, k, v int) (int, int, error) {
+				return k * 2, v * 2, nil
+			}
+
+			p := builtins.NewMapProcessor(mapper)
+			ctx := processor.NewMockContext[int, int]()
+			ctx.On("Forward", mock.Anything, mock.Anything).Return(forwardErr)
+			p.Init(ctx)
+
+			input := &record.Record[int, int]{Key: 1, Value: 2}
+			err := p.Process(context.Background(), input)
+
+			require.Error(t, err)
+			require.ErrorIs(t, err, forwardErr)
 		},
 	)
 }

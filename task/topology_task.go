@@ -1,6 +1,7 @@
 package task
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/hugolhafner/go-streams/kafka"
@@ -37,7 +38,7 @@ func (t *TopologyTask) CurrentOffset() (kafka.Offset, bool) {
 	return t.offset, true
 }
 
-func (t *TopologyTask) processSafe(rec kafka.ConsumerRecord) (err error) {
+func (t *TopologyTask) processSafe(ctx context.Context, rec kafka.ConsumerRecord) (err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			err = fmt.Errorf("panic recovered: %v", r)
@@ -72,7 +73,7 @@ func (t *TopologyTask) processSafe(rec kafka.ConsumerRecord) (err error) {
 	children := t.topology.Children(t.source.Name())
 	for _, childName := range children {
 		t.logger.Debug("Forwarding record to child node", "node", childName)
-		if err := t.processAt(childName, untypedRec); err != nil {
+		if err := t.processAt(ctx, childName, untypedRec); err != nil {
 			return err
 		}
 	}
@@ -80,12 +81,8 @@ func (t *TopologyTask) processSafe(rec kafka.ConsumerRecord) (err error) {
 	return nil
 }
 
-func (t *TopologyTask) Process(rec kafka.ConsumerRecord) error {
-	err := t.processSafe(rec)
-	if err != nil {
-		// TODO: add configurable error handling strategies
-		t.logger.Error("Error processing record, skipping", "error", err)
-	}
+func (t *TopologyTask) Process(ctx context.Context, rec kafka.ConsumerRecord) error {
+	err := t.processSafe(ctx, rec)
 
 	t.offset = kafka.Offset{
 		Offset:      rec.Offset + 1,
@@ -95,10 +92,10 @@ func (t *TopologyTask) Process(rec kafka.ConsumerRecord) error {
 	return err
 }
 
-func (t *TopologyTask) processAt(nodeName string, rec *record.UntypedRecord) error {
+func (t *TopologyTask) processAt(ctx context.Context, nodeName string, rec *record.UntypedRecord) error {
 	if sink, ok := t.sinks[nodeName]; ok {
 		t.logger.Debug("Forwarding record to sink node", "node", nodeName)
-		return sink.Process(rec)
+		return sink.Process(ctx, rec)
 	}
 
 	proc, ok := t.processors[nodeName]
@@ -108,7 +105,7 @@ func (t *TopologyTask) processAt(nodeName string, rec *record.UntypedRecord) err
 	}
 
 	t.logger.Debug("Processing record at processor node", "node", nodeName)
-	return proc.Process(rec)
+	return proc.Process(ctx, rec)
 }
 
 func (t *TopologyTask) Close() error {
