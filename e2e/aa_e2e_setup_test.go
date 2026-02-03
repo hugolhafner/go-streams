@@ -329,5 +329,5 @@ func getCommittedOffsets(t *testing.T, broker, groupID string) map[string]map[in
 
 type noopRebalanceCallback struct{}
 
-func (noopRebalanceCallback) OnAssigned([]kafka.TopicPartition) error { return nil }
-func (noopRebalanceCallback) OnRevoked([]kafka.TopicPartition) error  { return nil }
+func (noopRebalanceCallback) OnAssigned([]kafka.TopicPartition) {}
+func (noopRebalanceCallback) OnRevoked([]kafka.TopicPartition)  {}
