@@ -13,4 +13,5 @@ type Task interface {
 	RecordOffset(record kafka.ConsumerRecord)
 	CurrentOffset() (kafka.Offset, bool)
 	Close() error
+	IsClosed() bool
 }

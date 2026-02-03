@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/hugolhafner/dskit/backoff"
 	"github.com/hugolhafner/go-streams/committer"
 	"github.com/hugolhafner/go-streams/errorhandler"
 	"github.com/hugolhafner/go-streams/kafka"
@@ -15,6 +14,7 @@ import (
 )
 
 var _ Runner = (*SingleThreaded)(nil)
+var _ kafka.RebalanceCallback = (*SingleThreaded)(nil)
 
 type SingleThreaded struct {
 	consumer    kafka.Consumer
@@ -25,6 +25,9 @@ type SingleThreaded struct {
 	errorHandler errorhandler.Handler
 	committer    committer.Committer
 	logger       logger.Logger
+
+	// errChan is used to signal fatal errors from goroutines to the main Run loop
+	errChan chan error
 }
 
 func NewSingleThreadedRunner(
@@ -45,6 +48,7 @@ func NewSingleThreadedRunner(
 			topology:     t,
 			committer:    config.CommitterFactory(),
 			errorHandler: config.ErrorHandler,
+			errChan:      make(chan error, 1),
 			logger: config.Logger.
 				With("component", "runner").
 				With("runner", "single-threaded"),
@@ -66,7 +70,7 @@ func (r *SingleThreaded) shutdown() {
 	r.logger.Info("Shutting down runner")
 	r.committer.Close()
 
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*30)
 	defer cancel()
 
 	if err := r.commitOffsets(ctx); err != nil {
@@ -85,32 +89,14 @@ func (r *SingleThreaded) commitOffsets(_ context.Context) error {
 }
 
 func (r *SingleThreaded) doCommit(ctx context.Context) {
-	b := backoff.NewExponential(
-		backoff.WithMaxInterval(time.Second*3),
-		backoff.WithJitter(0.2),
-	)
-
-	var attempt uint = 1
-	for {
-		r.logger.Debug("Committing offsets", "attempt", attempt)
-		err := r.commitOffsets(ctx)
-		if err == nil {
-			r.logger.Debug("Successfully committed offsets")
-			break
-		}
-
-		sleep := b.Next(attempt)
-		r.logger.Error("Failed to commit offsets", "error", err, "attempt", attempt, "delay", sleep.String())
-
-		select {
-		case <-ctx.Done():
-			r.logger.Warn("Context closed, stopping commit retries")
-			return
-		case <-time.After(sleep):
-		}
-
-		attempt++
+	r.logger.Debug("Committing offsets")
+	err := r.commitOffsets(ctx)
+	if err == nil {
+		r.logger.Debug("Successfully committed offsets")
+		return
 	}
+
+	r.logger.Error("Failed to commit offsets", "error", err)
 }
 
 func (r *SingleThreaded) doPoll(ctx context.Context) error {
@@ -134,11 +120,58 @@ func (r *SingleThreaded) doPoll(ctx context.Context) error {
 	return nil
 }
 
+func (r *SingleThreaded) sendToDLQ(
+	ctx context.Context, record kafka.ConsumerRecord, ec errorhandler.ErrorContext,
+) {
+	key := make([]byte, len(record.Key))
+	copy(key, record.Key)
+	value := make([]byte, len(record.Value))
+	copy(value, record.Value)
+
+	headers := make(map[string][]byte)
+	for k, v := range record.Headers {
+		headers[k] = make([]byte, len(v))
+		copy(headers[k], v)
+	}
+
+	headers["x-original-topic"] = []byte(record.Topic)
+	headers["x-original-partition"] = []byte(fmt.Sprintf("%d", record.Partition))
+	headers["x-original-offset"] = []byte(fmt.Sprintf("%d", record.Offset))
+
+	headers["x-error-message"] = []byte(ec.Error.Error())
+	headers["x-error-attempt"] = []byte(fmt.Sprintf("%d", ec.Attempt))
+	headers["x-error-timestamp"] = []byte(time.Now().Format(time.RFC3339))
+	if ec.NodeName != "" {
+		headers["x-error-node"] = []byte(ec.NodeName)
+	}
+
+	err := r.producer.Send(ctx, "dlq", key, value, headers)
+
+	if err == nil {
+		r.logger.Debug(
+			"Sent record to DLQ",
+			"key", string(key),
+			"original_topic", record.Topic,
+			"original_partition", record.Partition,
+			"original_offset", record.Offset,
+		)
+	} else {
+		r.logger.Error(
+			"Failed to send record to DLQ, dropping record",
+			"error", err,
+			"key", string(key),
+			"original_topic", record.Topic,
+			"original_partition", record.Partition,
+			"original_offset", record.Offset,
+		)
+	}
+}
+
 func (r *SingleThreaded) processRecord(ctx context.Context, record kafka.ConsumerRecord) error {
 	t, ok := r.taskManager.TaskFor(record.TopicPartition())
 	if !ok {
 		r.logger.Warn(
-			"No task found for topic partition", "topic_partition",
+			"No task found for topic partition, may have just been rebalanced, continuing...", "topic_partition",
 			record.TopicPartition(),
 		)
 		return nil
@@ -166,16 +199,7 @@ func (r *SingleThreaded) processRecord(ctx context.Context, record kafka.Consume
 			ec = ec.IncrementAttempt()
 			continue
 		case errorhandler.ActionSendToDLQ:
-			r.logger.Warn(
-				"TODO: Send record to DLQ pending implementation",
-				"error", ec.Error,
-				"key", ec.Record.Key,
-				"topic", ec.Record.Topic,
-				"offset", ec.Record.Offset,
-				"partition", ec.Record.Partition,
-				"attempt", ec.Attempt,
-				"node", ec.NodeName,
-			)
+			r.sendToDLQ(ctx, record, ec)
 			t.RecordOffset(record)
 			return nil
 		case errorhandler.ActionContinue:
@@ -197,9 +221,32 @@ func (r *SingleThreaded) processRecord(ctx context.Context, record kafka.Consume
 	}
 }
 
+func (r *SingleThreaded) OnAssigned(partitions []kafka.TopicPartition) {
+	if err := r.taskManager.CreateTasks(partitions); err != nil {
+		r.logger.Error("Failed to create tasks on assigned partitions", "error", err)
+		r.errChan <- err
+	}
+}
+
+func (r *SingleThreaded) OnRevoked(partitions []kafka.TopicPartition) {
+	// Close tasks first to stop processing new records
+	if err := r.taskManager.CloseTasks(partitions); err != nil {
+		r.logger.Error("Failed to close tasks on revoked partitions", "error", err)
+		r.errChan <- err
+		return
+	}
+
+	r.doCommit(context.Background())
+	if err := r.taskManager.DeleteTasks(partitions); err != nil {
+		r.logger.Error("Failed to delete tasks on revoked partitions", "error", err)
+		r.errChan <- err
+		return
+	}
+}
+
 func (r *SingleThreaded) Run(ctx context.Context) error {
 	topics := r.sourceTopics()
-	if err := r.consumer.Subscribe(topics, r.taskManager); err != nil {
+	if err := r.consumer.Subscribe(topics, r); err != nil {
 		return fmt.Errorf("failed to subscribe to topics: %w", err)
 	}
 
@@ -207,6 +254,9 @@ func (r *SingleThreaded) Run(ctx context.Context) error {
 
 	for {
 		select {
+		case err := <-r.errChan:
+			r.logger.Error("Fatal error received in Run()", "error", err)
+			return err
 		case <-ctx.Done():
 			r.logger.Debug("Context closed, shutting down Run()")
 			return nil

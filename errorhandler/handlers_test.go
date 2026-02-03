@@ -1,3 +1,5 @@
+//go:build unit
+
 package errorhandler_test
 
 import (
@@ -68,11 +70,11 @@ func TestLogAndFail(t *testing.T) {
 	}
 }
 
-func TestWithRetry(t *testing.T) {
+func TestWithMaxAttempts(t *testing.T) {
 	t.Run(
-		"should call fallback after max retries", func(t *testing.T) {
+		"should call fallback after max attempts", func(t *testing.T) {
 			var testErr = errors.New("processing failed")
-			var maxRetries = 3
+			var maxAttempts = 3
 
 			ec := errorhandler.NewErrorContext(kafka.ConsumerRecord{}, testErr)
 
@@ -84,28 +86,28 @@ func TestWithRetry(t *testing.T) {
 				},
 			)
 
-			h := errorhandler.WithRetry(
-				maxRetries,
+			h := errorhandler.WithMaxAttempts(
+				maxAttempts,
 				backoff.NewFixed(0),
 				fallback,
 			)
 
-			for i := 1; i <= maxRetries; i++ {
+			for i := 1; i < maxAttempts; i++ {
 				action := h.Handle(context.Background(), ec.WithAttempt(i))
 				require.False(t, fallbackCalled, "fallback should not be called yet on attempt %d", i)
 				require.Equal(t, errorhandler.ActionRetry, action)
 			}
 
-			action := h.Handle(context.Background(), ec.WithAttempt(maxRetries+1))
+			action := h.Handle(context.Background(), ec.WithAttempt(maxAttempts+1))
 			require.True(t, fallbackCalled, "fallback should have been called")
 			require.Equal(t, errorhandler.ActionFail, action)
 		},
 	)
 
 	t.Run(
-		"should wait on retries", func(t *testing.T) {
+		"should wait on attempts", func(t *testing.T) {
 			var testErr = errors.New("processing failed")
-			var maxRetries = 3
+			var maxAttempts = 3
 
 			ec := errorhandler.NewErrorContext(kafka.ConsumerRecord{}, testErr)
 
@@ -117,8 +119,8 @@ func TestWithRetry(t *testing.T) {
 				},
 			)
 
-			h := errorhandler.WithRetry(
-				maxRetries,
+			h := errorhandler.WithMaxAttempts(
+				maxAttempts,
 				backoff.NewFixed(100*time.Millisecond),
 				fallback,
 			)
@@ -148,7 +150,7 @@ func TestWithRetry(t *testing.T) {
 				},
 			)
 
-			h := errorhandler.WithRetry(
+			h := errorhandler.WithMaxAttempts(
 				maxRetries,
 				backoff.NewFixed(time.Millisecond),
 				fallback,

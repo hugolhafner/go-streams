@@ -1,6 +1,8 @@
 package committer
 
 import (
+	"context"
+	"sync"
 	"time"
 )
 
@@ -30,6 +32,9 @@ type PeriodicCommitter struct {
 	count      int
 	lastCommit time.Time
 	channel    chan struct{}
+	mu         sync.RWMutex
+
+	tickerCancel context.CancelFunc
 }
 
 func NewPeriodicCommitter(opts ...PeriodicCommitterOption) *PeriodicCommitter {
@@ -51,6 +56,9 @@ func NewPeriodicCommitter(opts ...PeriodicCommitterOption) *PeriodicCommitter {
 }
 
 func (p *PeriodicCommitter) RecordProcessed(count int) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
 	p.count += count
 	if p.count > 0 && (p.count >= p.c.MaxCount || time.Since(p.lastCommit) >= p.c.MaxInterval) {
 		select {
@@ -64,9 +72,46 @@ func (p *PeriodicCommitter) RecordProcessed(count int) {
 }
 
 func (p *PeriodicCommitter) C() chan struct{} {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
 	return p.channel
 }
 
 func (p *PeriodicCommitter) Close() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
 	close(p.channel)
+}
+
+func (p *PeriodicCommitter) Reset() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	p.count = 0
+	p.lastCommit = time.Now()
+}
+
+func (p *PeriodicCommitter) startIntervalTicker() {
+	p.mu.Lock()
+	ctx, cancel := context.WithCancel(context.Background())
+	p.tickerCancel = cancel
+	p.mu.Unlock()
+
+	ticker := time.NewTicker(p.c.MaxInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			p.RecordProcessed(0)
+		}
+	}
+}
+
+func (p *PeriodicCommitter) Start() {
+	go p.startIntervalTicker()
 }

@@ -6,7 +6,9 @@ import (
 
 // Manager handles task lifecycle
 type Manager interface {
-	kafka.RebalanceCallback
+	CreateTasks(partitions []kafka.TopicPartition) error
+	CloseTasks(partitions []kafka.TopicPartition) error
+	DeleteTasks(partitions []kafka.TopicPartition) error
 
 	Tasks() map[kafka.TopicPartition]Task
 	TaskFor(partition kafka.TopicPartition) (Task, bool)

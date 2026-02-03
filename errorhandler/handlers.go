@@ -46,9 +46,9 @@ func LogAndFail(logger logger.Logger) Handler {
 	)
 }
 
-// WithRetry wraps a handler with retry logic
-// When retries exhausted, delegates to fallback
-func WithRetry(maxRetries int, b backoff.Backoff, fallback Handler) Handler {
+// WithMaxAttempts wraps a handler with retry logic
+// When the max attempts is reached, the fallback handler is called
+func WithMaxAttempts(maxAttempts int, b backoff.Backoff, fallback Handler) Handler {
 	return HandlerFunc(
 		func(ctx context.Context, ec ErrorContext) Action {
 			select {
@@ -57,7 +57,7 @@ func WithRetry(maxRetries int, b backoff.Backoff, fallback Handler) Handler {
 			case <-time.After(b.Next(uint(ec.Attempt))):
 			}
 
-			if ec.Attempt <= maxRetries {
+			if ec.Attempt < maxAttempts {
 				return ActionRetry
 			}
 
@@ -67,7 +67,7 @@ func WithRetry(maxRetries int, b backoff.Backoff, fallback Handler) Handler {
 }
 
 // WithDLQ returns SendToDLQ action when inner would Continue
-// Useful for: WithRetry(3, backoff, WithDLQ(inner))
+// Useful for: WithMaxAttempts(3, backoff, WithDLQ(inner))
 func WithDLQ(inner Handler) Handler {
 	return HandlerFunc(
 		func(ctx context.Context, ec ErrorContext) Action {

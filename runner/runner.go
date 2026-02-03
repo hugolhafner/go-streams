@@ -9,6 +9,7 @@ import (
 )
 
 type Runner interface {
+	kafka.RebalanceCallback
 	Run(ctx context.Context) error
 }
 

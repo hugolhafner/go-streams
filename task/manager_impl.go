@@ -19,7 +19,7 @@ type managerImpl struct {
 	logger logger.Logger
 }
 
-func (m *managerImpl) OnAssigned(partitions []kafka.TopicPartition) error {
+func (m *managerImpl) CreateTasks(partitions []kafka.TopicPartition) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -47,7 +47,7 @@ func (m *managerImpl) OnAssigned(partitions []kafka.TopicPartition) error {
 	return nil
 }
 
-func (m *managerImpl) OnRevoked(partitions []kafka.TopicPartition) error {
+func (m *managerImpl) CloseTasks(partitions []kafka.TopicPartition) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -61,6 +61,28 @@ func (m *managerImpl) OnRevoked(partitions []kafka.TopicPartition) error {
 		if err := task.Close(); err != nil {
 			lastErr = fmt.Errorf("close task for partition %v: %w", p, err)
 		}
+	}
+
+	return lastErr
+}
+
+func (m *managerImpl) DeleteTasks(partitions []kafka.TopicPartition) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	var lastErr error
+	for _, p := range partitions {
+		task, exists := m.tasks[p]
+		if !exists {
+			continue
+		}
+
+		if !task.IsClosed() {
+			if err := task.Close(); err != nil {
+				lastErr = fmt.Errorf("close task for partition %v: %w", p, err)
+			}
+		}
+
 		delete(m.tasks, p)
 	}
 

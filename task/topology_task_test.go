@@ -157,6 +157,8 @@ func TestTopologyTask_OffsetTracking(t *testing.T) {
 	err = tsk.Process(context.Background(), rec1)
 	require.NoError(t, err)
 
+	tsk.RecordOffset(rec1)
+
 	offset, ok := tsk.CurrentOffset()
 	require.True(t, ok)
 	require.Equal(t, int64(1), offset.Offset, "offset should be next offset to fetch (0+1)")
@@ -165,6 +167,8 @@ func TestTopologyTask_OffsetTracking(t *testing.T) {
 	rec2 := newTestRecord("input", 0, 5, "k2", "v2")
 	err = tsk.Process(context.Background(), rec2)
 	require.NoError(t, err)
+
+	tsk.RecordOffset(rec2)
 
 	offset, ok = tsk.CurrentOffset()
 	require.True(t, ok)
@@ -363,10 +367,15 @@ func TestTopologyTask_PanicRecovery(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "panic recovered")
 
-	// Offset should still be updated (record was "processed" even if it errored)
+	// offset should not be updated
+	_, ok := tsk.CurrentOffset()
+	require.False(t, ok, "offset should not be updated after panic")
+
+	// offset should be updated after recording offset
+	tsk.RecordOffset(rec)
 	offset, ok := tsk.CurrentOffset()
-	require.True(t, ok)
-	require.Equal(t, int64(1), offset.Offset)
+	require.True(t, ok, "offset should be available after recording")
+	require.Equal(t, int64(1), offset.Offset, "offset should be updated to next offset")
 }
 
 func TestTopologyTask_DeserializationError(t *testing.T) {
@@ -405,10 +414,15 @@ func TestTopologyTask_DeserializationError(t *testing.T) {
 	// No record should be produced
 	producer.AssertNoProducedRecords(t)
 
-	// Offset should still be tracked (bad records are skipped, not retried forever)
+	// offset should not be updated
+	_, ok := tsk.CurrentOffset()
+	require.False(t, ok, "offset should not be updated after deserialization error")
+
+	// offset should be updated after recording offset
+	tsk.RecordOffset(rec)
 	offset, ok := tsk.CurrentOffset()
-	require.True(t, ok)
-	require.Equal(t, int64(1), offset.Offset)
+	require.True(t, ok, "offset should be available after recording")
+	require.Equal(t, int64(1), offset.Offset, "offset should be updated to next offset")
 }
 
 func TestTopologyTask_ProducerError(t *testing.T) {

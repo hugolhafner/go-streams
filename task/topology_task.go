@@ -11,6 +11,10 @@ import (
 	"github.com/hugolhafner/go-streams/topology"
 )
 
+var (
+	ErrTaskClosed = fmt.Errorf("task is closed")
+)
+
 var _ Task = (*TopologyTask)(nil)
 
 type TopologyTask struct {
@@ -24,6 +28,12 @@ type TopologyTask struct {
 	topology   *topology.Topology
 
 	logger logger.Logger
+
+	closed bool
+}
+
+func (t *TopologyTask) IsClosed() bool {
+	return t.closed
 }
 
 func (t *TopologyTask) Partition() kafka.TopicPartition {
@@ -82,6 +92,10 @@ func (t *TopologyTask) processSafe(ctx context.Context, rec kafka.ConsumerRecord
 }
 
 func (t *TopologyTask) Process(ctx context.Context, rec kafka.ConsumerRecord) error {
+	if t.closed {
+		return ErrTaskClosed
+	}
+
 	return t.processSafe(ctx, rec)
 }
 
@@ -109,6 +123,8 @@ func (t *TopologyTask) processAt(ctx context.Context, nodeName string, rec *reco
 }
 
 func (t *TopologyTask) Close() error {
+	t.closed = true
+
 	var lastErr error
 	for name, proc := range t.processors {
 		if err := proc.Close(); err != nil {

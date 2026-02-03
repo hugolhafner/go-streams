@@ -90,9 +90,9 @@ func KgoComplete() {
 				errorhandler.ActionLogger(
 					klogger,
 					logger.InfoLevel,
-					errorhandler.WithRetry(
+					errorhandler.WithMaxAttempts(
 						3, backoff.NewFixed(time.Second),
-						errorhandler.LogAndContinue(klogger),
+						errorhandler.WithDLQ(errorhandler.LogAndContinue(klogger)),
 					),
 				),
 			),

@@ -88,7 +88,6 @@ func NewKgoClient(opts ...KgoOption) (*KgoClient, error) {
 		kgo.SessionTimeout(cfg.SessionTimeout),
 		kgo.HeartbeatInterval(cfg.HeartbeatInterval),
 		// TODO: Metrics support
-		kgo.BlockRebalanceOnPoll(),
 	}
 
 	client, err := kgo.NewClient(kgoOpts...)
@@ -111,10 +110,7 @@ func (k *KgoClient) onAssigned(ctx context.Context, c *kgo.Client, assigned map[
 	}
 
 	partitions := mapToTopicPartitions(assigned)
-	err := cb.OnAssigned(partitions)
-	if err != nil {
-		k.logger.Error("Error in OnAssigned callback:", "error", err)
-	}
+	cb.OnAssigned(partitions)
 }
 
 func (k *KgoClient) onRevoked(ctx context.Context, c *kgo.Client, revoked map[string][]int32) {
@@ -127,10 +123,7 @@ func (k *KgoClient) onRevoked(ctx context.Context, c *kgo.Client, revoked map[st
 	}
 
 	partitions := mapToTopicPartitions(revoked)
-	err := cb.OnRevoked(partitions)
-	if err != nil {
-		k.logger.Error("Error in OnRevoked callback:", "error", err)
-	}
+	cb.OnRevoked(partitions)
 }
 
 func (k *KgoClient) Subscribe(topics []string, rebalanceCb RebalanceCallback) error {
@@ -150,8 +143,6 @@ func (k *KgoClient) Subscribe(topics []string, rebalanceCb RebalanceCallback) er
 }
 
 func (k *KgoClient) Poll(ctx context.Context) ([]ConsumerRecord, error) {
-	k.client.AllowRebalance()
-
 	ctx, cancel := context.WithTimeout(ctx, k.config.PollTimeout)
 	defer cancel()
 
@@ -190,7 +181,7 @@ func (k *KgoClient) Commit(offsets map[TopicPartition]Offset) error {
 		onDoneCh <- err
 	}
 
-	k.client.CommitOffsets(context.Background(), toCommit, onDone)
+	k.client.CommitOffsetsSync(context.Background(), toCommit, onDone)
 	err := <-onDoneCh
 
 	if err != nil {

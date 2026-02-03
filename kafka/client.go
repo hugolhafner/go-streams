@@ -27,9 +27,8 @@ type Consumer interface {
 }
 
 type RebalanceCallback interface {
-	// TODO: Should these return errors? If so what should the client do with them?
-	OnAssigned(partitions []TopicPartition) error
-	OnRevoked(partitions []TopicPartition) error
+	OnAssigned(partitions []TopicPartition)
+	OnRevoked(partitions []TopicPartition)
 }
 
 type CommitStrategy interface {
