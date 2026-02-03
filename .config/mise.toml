@@ -9,7 +9,7 @@ run = "go mod tidy && go mod download && go mod verify"
 run = "golangci-lint run ./..."
 
 [tasks.test]
-run = "go test -v ./..."
+run = "go test -v -tags=unit ./..."
 
 [tasks.test-json]
 run = "go test -v -tags=unit -json ./... | tee test-results.json"

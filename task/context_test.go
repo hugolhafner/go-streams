@@ -83,7 +83,7 @@ func TestContext_Forward_PropagatesDownstreamError(t *testing.T) {
 	factory, err := task.NewTopologyTaskFactory(topo, logger.NewNoopLogger())
 	require.NoError(t, err)
 
-	producer := mock.NewClient()
+	producer := mockkafka.NewClient()
 	tp := kafka.TopicPartition{Topic: "input", Partition: 0}
 
 	tsk, err := factory.CreateTask(tp, producer)
@@ -131,7 +131,7 @@ func TestContext_Forward_MultipleChildren_StopsOnFirstError(t *testing.T) {
 	require.NoError(t, err)
 
 	// Use the mock client with error injection
-	producer := mock.NewClient(mock.WithSendError(errors.New("producer error")))
+	producer := mockkafka.NewClient(mockkafka.WithSendError(errors.New("producer error")))
 
 	tp := kafka.TopicPartition{Topic: "input", Partition: 0}
 	tsk, err := factory.CreateTask(tp, producer)
@@ -183,7 +183,7 @@ func TestContext_Forward_WrapsErrorWithNodeInfo(t *testing.T) {
 	factory, err := task.NewTopologyTaskFactory(topo, logger.NewNoopLogger())
 	require.NoError(t, err)
 
-	producer := mock.NewClient()
+	producer := mockkafka.NewClient()
 	tp := kafka.TopicPartition{Topic: "input", Partition: 0}
 
 	tsk, err := factory.CreateTask(tp, producer)
@@ -241,7 +241,7 @@ func TestContext_ForwardTo_PropagatesError(t *testing.T) {
 	factory, err := task.NewTopologyTaskFactory(topo, logger.NewNoopLogger())
 	require.NoError(t, err)
 
-	producer := mock.NewClient()
+	producer := mockkafka.NewClient()
 	tp := kafka.TopicPartition{Topic: "input", Partition: 0}
 
 	tsk, err := factory.CreateTask(tp, producer)
@@ -280,7 +280,7 @@ func TestContext_ForwardTo_UnknownChildReturnsError(t *testing.T) {
 	factory, err := task.NewTopologyTaskFactory(topo, logger.NewNoopLogger())
 	require.NoError(t, err)
 
-	producer := mock.NewClient()
+	producer := mockkafka.NewClient()
 	tp := kafka.TopicPartition{Topic: "input", Partition: 0}
 
 	tsk, err := factory.CreateTask(tp, producer)

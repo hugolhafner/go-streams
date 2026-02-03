@@ -9,31 +9,32 @@ import (
 
 	"github.com/hugolhafner/go-streams/logger"
 	"github.com/twmb/franz-go/pkg/kgo"
-	"github.com/twmb/franz-go/pkg/kmsg"
 )
 
 var _ Client = (*KgoClient)(nil)
 
 type KgoClientConfig struct {
-	BootstrapServers  []string
-	GroupID           string
-	SessionTimeout    time.Duration
-	HeartbeatInterval time.Duration
-	MaxPollRecords    int
-	PollTimeout       time.Duration
+	BootstrapServers   []string
+	GroupID            string
+	SessionTimeout     time.Duration
+	HeartbeatInterval  time.Duration
+	AutoCommitInterval time.Duration
+	MaxPollRecords     int
+	PollTimeout        time.Duration
 
 	Logger logger.Logger
 }
 
 func defaultConfig() KgoClientConfig {
 	return KgoClientConfig{
-		BootstrapServers:  []string{"localhost:9092"},
-		GroupID:           "default-group",
-		SessionTimeout:    45 * time.Second,
-		HeartbeatInterval: 3 * time.Second,
-		PollTimeout:       3 * time.Second,
-		MaxPollRecords:    10,
-		Logger:            logger.NewNoopLogger(),
+		BootstrapServers:   []string{"localhost:9092"},
+		GroupID:            "default-group",
+		SessionTimeout:     45 * time.Second,
+		HeartbeatInterval:  3 * time.Second,
+		PollTimeout:        3 * time.Second,
+		AutoCommitInterval: 5 * time.Second,
+		MaxPollRecords:     10,
+		Logger:             logger.NewNoopLogger(),
 	}
 }
 
@@ -81,14 +82,14 @@ func NewKgoClient(opts ...KgoOption) (*KgoClient, error) {
 	kgoOpts := []kgo.Opt{
 		kgo.SeedBrokers(cfg.BootstrapServers...),
 		kgo.ConsumerGroup(cfg.GroupID),
-		kgo.DisableAutoCommit(),
 		kgo.OnPartitionsAssigned(kc.onAssigned),
 		kgo.OnPartitionsRevoked(kc.onRevoked),
 		kgo.WithLogger(newKgoLogger(kc.logger)),
 		kgo.SessionTimeout(cfg.SessionTimeout),
 		kgo.HeartbeatInterval(cfg.HeartbeatInterval),
+		kgo.AutoCommitMarks(),
+		kgo.AutoCommitInterval(cfg.AutoCommitInterval),
 		// TODO: Metrics support
-		kgo.BlockRebalanceOnPoll(),
 	}
 
 	client, err := kgo.NewClient(kgoOpts...)
@@ -111,10 +112,7 @@ func (k *KgoClient) onAssigned(ctx context.Context, c *kgo.Client, assigned map[
 	}
 
 	partitions := mapToTopicPartitions(assigned)
-	err := cb.OnAssigned(partitions)
-	if err != nil {
-		k.logger.Error("Error in OnAssigned callback:", "error", err)
-	}
+	cb.OnAssigned(partitions)
 }
 
 func (k *KgoClient) onRevoked(ctx context.Context, c *kgo.Client, revoked map[string][]int32) {
@@ -127,10 +125,7 @@ func (k *KgoClient) onRevoked(ctx context.Context, c *kgo.Client, revoked map[st
 	}
 
 	partitions := mapToTopicPartitions(revoked)
-	err := cb.OnRevoked(partitions)
-	if err != nil {
-		k.logger.Error("Error in OnRevoked callback:", "error", err)
-	}
+	cb.OnRevoked(partitions)
 }
 
 func (k *KgoClient) Subscribe(topics []string, rebalanceCb RebalanceCallback) error {
@@ -150,8 +145,6 @@ func (k *KgoClient) Subscribe(topics []string, rebalanceCb RebalanceCallback) er
 }
 
 func (k *KgoClient) Poll(ctx context.Context) ([]ConsumerRecord, error) {
-	k.client.AllowRebalance()
-
 	ctx, cancel := context.WithTimeout(ctx, k.config.PollTimeout)
 	defer cancel()
 
@@ -167,38 +160,12 @@ func (k *KgoClient) Poll(ctx context.Context) ([]ConsumerRecord, error) {
 	return convertRecords(fetches.Records()), nil
 }
 
-func (k *KgoClient) Commit(offsets map[TopicPartition]Offset) error {
-	toCommit := make(map[string]map[int32]kgo.EpochOffset)
-	for tp, offset := range offsets {
-		if _, ok := toCommit[tp.Topic]; !ok {
-			toCommit[tp.Topic] = make(map[int32]kgo.EpochOffset)
-		}
+func (k *KgoClient) MarkRecords(records ...ConsumerRecord) {
+	k.client.MarkCommitRecords(convertRecordsToKgo(records)...)
+}
 
-		toCommit[tp.Topic][tp.Partition] = kgo.EpochOffset{
-			Offset: offset.Offset,
-			Epoch:  offset.LeaderEpoch,
-		}
-
-		k.logger.Info(
-			"Preparing to commit offset", "topic", tp.Topic, "partition", tp.Partition,
-			"offset", offset.Offset,
-		)
-	}
-
-	onDoneCh := make(chan error)
-	onDone := func(_ *kgo.Client, _ *kmsg.OffsetCommitRequest, _ *kmsg.OffsetCommitResponse, err error) {
-		onDoneCh <- err
-	}
-
-	k.client.CommitOffsets(context.Background(), toCommit, onDone)
-	err := <-onDoneCh
-
-	if err != nil {
-		k.logger.Error("Committing offsets error", "error", err)
-		return fmt.Errorf("commit offsets: %w", err)
-	}
-
-	return nil
+func (k *KgoClient) Commit(ctx context.Context) error {
+	return k.client.CommitMarkedOffsets(ctx)
 }
 
 func (k *KgoClient) Send(ctx context.Context, topic string, key, value []byte, headers map[string][]byte) error {
@@ -215,9 +182,7 @@ func (k *KgoClient) Send(ctx context.Context, topic string, key, value []byte, h
 	return results.FirstErr()
 }
 
-func (k *KgoClient) Flush(timeout time.Duration) error {
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
+func (k *KgoClient) Flush(ctx context.Context) error {
 	return k.client.Flush(ctx)
 }
 
@@ -227,6 +192,24 @@ func (k *KgoClient) Ping(ctx context.Context) error {
 
 func (k *KgoClient) Close() {
 	k.client.CloseAllowingRebalance()
+}
+
+func convertRecordsToKgo(records []ConsumerRecord) []*kgo.Record {
+	kgoRecords := make([]*kgo.Record, len(records))
+	for i, r := range records {
+		kgoRecords[i] = &kgo.Record{
+			Topic:       r.Topic,
+			Partition:   r.Partition,
+			Offset:      r.Offset,
+			Key:         r.Key,
+			Value:       r.Value,
+			Headers:     convertToKgoHeaders(r.Headers),
+			Timestamp:   r.Timestamp,
+			LeaderEpoch: r.LeaderEpoch,
+		}
+	}
+
+	return kgoRecords
 }
 
 func convertRecords(records []*kgo.Record) []ConsumerRecord {

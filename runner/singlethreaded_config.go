@@ -1,25 +1,34 @@
 package runner
 
 import (
-	"github.com/hugolhafner/go-streams/committer"
+	"github.com/hugolhafner/go-streams/errorhandler"
+	"github.com/hugolhafner/go-streams/logger"
 )
 
 type SingleThreadedConfig struct {
-	CommitterFactory func() committer.Committer
+	Logger       logger.Logger
+	ErrorHandler errorhandler.Handler
 }
 
 type SingleThreadedOption func(*SingleThreadedConfig)
 
-func WithCommitter(factory func() committer.Committer) SingleThreadedOption {
+func WithErrorHandler(handler errorhandler.Handler) SingleThreadedOption {
 	return func(c *SingleThreadedConfig) {
-		c.CommitterFactory = factory
+		c.ErrorHandler = handler
+	}
+}
+
+func WithLogger(logger logger.Logger) SingleThreadedOption {
+	return func(c *SingleThreadedConfig) {
+		c.Logger = logger
 	}
 }
 
 func defaultSingleThreadedConfig() SingleThreadedConfig {
+	l := logger.NewNoopLogger()
+
 	return SingleThreadedConfig{
-		CommitterFactory: func() committer.Committer {
-			return committer.NewPeriodicCommitter()
-		},
+		Logger:       l,
+		ErrorHandler: errorhandler.LogAndContinue(l),
 	}
 }

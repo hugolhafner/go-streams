@@ -103,7 +103,7 @@ func TestTopologyTask_BasicProcessing(t *testing.T) {
 	factory, err := task.NewTopologyTaskFactory(topo, logger.NewNoopLogger())
 	require.NoError(t, err)
 
-	producer := mock.NewClient()
+	producer := mockkafka.NewClient()
 	tp := kafka.TopicPartition{Topic: "input", Partition: 0}
 
 	tsk, err := factory.CreateTask(tp, producer)
@@ -122,7 +122,10 @@ func TestTopologyTask_BasicProcessing(t *testing.T) {
 	producer.AssertProducedString(t, "output", "test-key", "test-value")
 }
 
-func TestTopologyTask_OffsetTracking(t *testing.T) {
+func TestTopologyTask_MultipleRecordsProcessing(t *testing.T) {
+	// Test processing multiple records sequentially
+	// Note: Offset tracking is now handled by the client via MarkRecords/Commit,
+	// not by the task itself. This test verifies task processing still works correctly.
 	topo := topology.New()
 	topo.AddSource(
 		"source", "input", serde.ToUntypedDeserialser(serde.Bytes()), serde.ToUntypedDeserialser(serde.Bytes()),
@@ -139,36 +142,46 @@ func TestTopologyTask_OffsetTracking(t *testing.T) {
 	factory, err := task.NewTopologyTaskFactory(topo, logger.NewNoopLogger())
 	require.NoError(t, err)
 
-	producer := mock.NewClient()
+	client := mockkafka.NewClient()
 	tp := kafka.TopicPartition{Topic: "input", Partition: 0}
 
-	tsk, err := factory.CreateTask(tp, producer)
+	tsk, err := factory.CreateTask(tp, client)
 	require.NoError(t, err)
 	defer func() {
 		closeErr := tsk.Close()
 		require.NoError(t, closeErr)
 	}()
 
-	_, ok := tsk.CurrentOffset()
-	require.False(t, ok, "expected no offset before processing")
-
-	// Process first record at offset 0
+	// Process multiple records - simulating what the runner does
 	rec1 := newTestRecord("input", 0, 0, "k1", "v1")
 	err = tsk.Process(context.Background(), rec1)
 	require.NoError(t, err)
+	// Runner would call: client.MarkRecords(rec1)
 
-	offset, ok := tsk.CurrentOffset()
-	require.True(t, ok)
-	require.Equal(t, int64(1), offset.Offset, "offset should be next offset to fetch (0+1)")
-
-	// Process second record at offset 5
-	rec2 := newTestRecord("input", 0, 5, "k2", "v2")
+	rec2 := newTestRecord("input", 0, 1, "k2", "v2")
 	err = tsk.Process(context.Background(), rec2)
 	require.NoError(t, err)
+	// Runner would call: client.MarkRecords(rec2)
 
-	offset, ok = tsk.CurrentOffset()
-	require.True(t, ok)
-	require.Equal(t, int64(6), offset.Offset, "offset should be next offset to fetch (5+1)")
+	rec3 := newTestRecord("input", 0, 2, "k3", "v3")
+	err = tsk.Process(context.Background(), rec3)
+	require.NoError(t, err)
+	// Runner would call: client.MarkRecords(rec3)
+
+	// Verify all records were produced
+	client.AssertProducedCount(t, 3)
+	client.AssertProducedString(t, "output", "k1", "v1")
+	client.AssertProducedString(t, "output", "k2", "v2")
+	client.AssertProducedString(t, "output", "k3", "v3")
+
+	// Demonstrate the mark/commit pattern the runner would use
+	client.MarkRecords(rec1, rec2, rec3)
+	client.AssertMarkedCount(t, 3)
+	client.AssertMarkedOffset(t, tp, 3) // next offset = 2 + 1
+
+	err = client.Commit(context.Background())
+	require.NoError(t, err)
+	client.AssertCommittedOffset(t, tp, 3)
 }
 
 func TestTopologyTask_FilterProcessing(t *testing.T) {
@@ -195,7 +208,7 @@ func TestTopologyTask_FilterProcessing(t *testing.T) {
 	factory, err := task.NewTopologyTaskFactory(topo, logger.NewNoopLogger())
 	require.NoError(t, err)
 
-	producer := mock.NewClient()
+	producer := mockkafka.NewClient()
 	tp := kafka.TopicPartition{Topic: "input", Partition: 0}
 
 	tsk, err := factory.CreateTask(tp, producer)
@@ -247,7 +260,7 @@ func TestTopologyTask_MapTransformation(t *testing.T) {
 	factory, err := task.NewTopologyTaskFactory(topo, logger.NewNoopLogger())
 	require.NoError(t, err)
 
-	producer := mock.NewClient()
+	producer := mockkafka.NewClient()
 	tp := kafka.TopicPartition{Topic: "input", Partition: 0}
 
 	tsk, err := factory.CreateTask(tp, producer)
@@ -299,7 +312,7 @@ func TestTopologyTask_ChainedProcessors(t *testing.T) {
 	factory, err := task.NewTopologyTaskFactory(topo, logger.NewNoopLogger())
 	require.NoError(t, err)
 
-	producer := mock.NewClient()
+	producer := mockkafka.NewClient()
 	tp := kafka.TopicPartition{Topic: "input", Partition: 0}
 
 	tsk, err := factory.CreateTask(tp, producer)
@@ -346,10 +359,10 @@ func TestTopologyTask_PanicRecovery(t *testing.T) {
 	factory, err := task.NewTopologyTaskFactory(topo, logger.NewNoopLogger())
 	require.NoError(t, err)
 
-	producer := mock.NewClient()
+	client := mockkafka.NewClient()
 	tp := kafka.TopicPartition{Topic: "input", Partition: 0}
 
-	tsk, err := factory.CreateTask(tp, producer)
+	tsk, err := factory.CreateTask(tp, client)
 	require.NoError(t, err)
 	defer func() {
 		closeErr := tsk.Close()
@@ -363,10 +376,14 @@ func TestTopologyTask_PanicRecovery(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "panic recovered")
 
-	// Offset should still be updated (record was "processed" even if it errored)
-	offset, ok := tsk.CurrentOffset()
-	require.True(t, ok)
-	require.Equal(t, int64(1), offset.Offset)
+	// No record should be produced since panic occurred
+	client.AssertNoProducedRecords(t)
+
+	// Runner decides what to do with failed records - it might:
+	// 1. Skip to DLQ and still mark the record
+	// 2. Retry
+	// 3. Stop processing
+	// The task doesn't track offsets - that's the runner's job via MarkRecords
 }
 
 func TestTopologyTask_DeserializationError(t *testing.T) {
@@ -385,10 +402,10 @@ func TestTopologyTask_DeserializationError(t *testing.T) {
 	factory, err := task.NewTopologyTaskFactory(topo, logger.NewNoopLogger())
 	require.NoError(t, err)
 
-	producer := mock.NewClient()
+	client := mockkafka.NewClient()
 	tp := kafka.TopicPartition{Topic: "input", Partition: 0}
 
-	tsk, err := factory.CreateTask(tp, producer)
+	tsk, err := factory.CreateTask(tp, client)
 	require.NoError(t, err)
 	defer func() {
 		closeErr := tsk.Close()
@@ -403,12 +420,17 @@ func TestTopologyTask_DeserializationError(t *testing.T) {
 	require.Contains(t, err.Error(), "deserialize")
 
 	// No record should be produced
-	producer.AssertNoProducedRecords(t)
+	client.AssertNoProducedRecords(t)
 
-	// Offset should still be tracked (bad records are skipped, not retried forever)
-	offset, ok := tsk.CurrentOffset()
-	require.True(t, ok)
-	require.Equal(t, int64(1), offset.Offset)
+	// Demonstrate that runner can still mark the record (e.g., for DLQ handling)
+	// This is the runner's decision, not the task's
+	client.MarkRecords(rec)
+	client.AssertMarkedCount(t, 1)
+	client.AssertMarkedOffset(t, tp, 1) // next offset = 0 + 1
+
+	err = client.Commit(context.Background())
+	require.NoError(t, err)
+	client.AssertCommittedOffset(t, tp, 1)
 }
 
 func TestTopologyTask_ProducerError(t *testing.T) {
@@ -430,7 +452,7 @@ func TestTopologyTask_ProducerError(t *testing.T) {
 	factory, err := task.NewTopologyTaskFactory(topo, logger.NewNoopLogger())
 	require.NoError(t, err)
 
-	producer := mock.NewClient(mock.WithSendError(errors.New("kafka unavailable")))
+	producer := mockkafka.NewClient(mockkafka.WithSendError(errors.New("kafka unavailable")))
 
 	tp := kafka.TopicPartition{Topic: "input", Partition: 0}
 	tsk, err := factory.CreateTask(tp, producer)
@@ -465,7 +487,7 @@ func TestTopologyTask_Partition(t *testing.T) {
 	factory, err := task.NewTopologyTaskFactory(topo, logger.NewNoopLogger())
 	require.NoError(t, err)
 
-	producer := mock.NewClient()
+	producer := mockkafka.NewClient()
 	tp := kafka.TopicPartition{Topic: "my-topic", Partition: 7}
 
 	tsk, err := factory.CreateTask(tp, producer)
@@ -478,7 +500,7 @@ func TestTopologyTask_Partition(t *testing.T) {
 	require.Equal(t, tp, tsk.Partition())
 }
 
-func TestTopologyTask_InitialOffsetState(t *testing.T) {
+func TestTopologyTask_IsClosed(t *testing.T) {
 	topo := topology.New()
 	topo.AddSource(
 		"source", "input", serde.ToUntypedDeserialser(serde.Bytes()), serde.ToUntypedDeserialser(serde.Bytes()),
@@ -490,18 +512,18 @@ func TestTopologyTask_InitialOffsetState(t *testing.T) {
 	factory, err := task.NewTopologyTaskFactory(topo, logger.NewNoopLogger())
 	require.NoError(t, err)
 
-	producer := mock.NewClient()
+	producer := mockkafka.NewClient()
 	tp := kafka.TopicPartition{Topic: "input", Partition: 0}
 
 	tsk, err := factory.CreateTask(tp, producer)
 	require.NoError(t, err)
-	defer func() {
-		closeErr := tsk.Close()
-		require.NoError(t, closeErr)
-	}()
 
-	_, ok := tsk.CurrentOffset()
-	require.False(t, ok, "no offset should be available before processing")
+	require.False(t, tsk.IsClosed(), "task should not be closed initially")
+
+	err = tsk.Close()
+	require.NoError(t, err)
+
+	require.True(t, tsk.IsClosed(), "task should be closed after Close()")
 }
 
 func TestTopologyTask_HeaderPreservation(t *testing.T) {
@@ -521,7 +543,7 @@ func TestTopologyTask_HeaderPreservation(t *testing.T) {
 	factory, err := task.NewTopologyTaskFactory(topo, logger.NewNoopLogger())
 	require.NoError(t, err)
 
-	producer := mock.NewClient()
+	producer := mockkafka.NewClient()
 	tp := kafka.TopicPartition{Topic: "input", Partition: 0}
 
 	tsk, err := factory.CreateTask(tp, producer)
@@ -574,7 +596,7 @@ func TestTopologyTaskFactory_UnknownSourceTopic(t *testing.T) {
 	factory, err := task.NewTopologyTaskFactory(topo, logger.NewNoopLogger())
 	require.NoError(t, err)
 
-	producer := mock.NewClient()
+	producer := mockkafka.NewClient()
 	tp := kafka.TopicPartition{Topic: "unknown-topic", Partition: 0}
 
 	_, err = factory.CreateTask(tp, producer)
@@ -616,7 +638,7 @@ func TestTopologyTaskFactory_MultipleSourceTopics(t *testing.T) {
 	factory, err := task.NewTopologyTaskFactory(topo, logger.NewNoopLogger())
 	require.NoError(t, err)
 
-	producer := mock.NewClient()
+	producer := mockkafka.NewClient()
 
 	taskA, err := factory.CreateTask(kafka.TopicPartition{Topic: "topic-a", Partition: 0}, producer)
 	require.NoError(t, err)
@@ -643,4 +665,250 @@ func TestTopologyTaskFactory_MultipleSourceTopics(t *testing.T) {
 	producer.AssertProducedCount(t, 2)
 	producer.AssertProducedCountForTopic(t, "output-a", 1)
 	producer.AssertProducedCountForTopic(t, "output-b", 1)
+}
+
+func TestTopologyTask_ProcessorError(t *testing.T) {
+	// Test: Processor returns error (not panic)
+	processorErr := errors.New("processor failed")
+
+	topo := topology.New()
+	topo.AddSource(
+		"source", "input", serde.ToUntypedDeserialser(serde.String()), serde.ToUntypedDeserialser(serde.String()),
+	)
+
+	var errorSupplier processor.Supplier[string, string, string, string] = func() processor.Processor[string, string, string, string] {
+		return builtins.NewMapProcessor(
+			func(_ context.Context, k, v string) (string, string, error) {
+				return "", "", processorErr
+			},
+		)
+	}
+	topo.AddProcessor("error-proc", errorSupplier.ToUntyped(), "source")
+	topo.AddSink(
+		"sink", "output", serde.ToUntypedSerialiser(serde.String()), serde.ToUntypedSerialiser(serde.String()),
+		"error-proc",
+	)
+
+	factory, err := task.NewTopologyTaskFactory(topo, logger.NewNoopLogger())
+	require.NoError(t, err)
+
+	producer := mockkafka.NewClient()
+	tp := kafka.TopicPartition{Topic: "input", Partition: 0}
+
+	tsk, err := factory.CreateTask(tp, producer)
+	require.NoError(t, err)
+	defer func() {
+		closeErr := tsk.Close()
+		require.NoError(t, closeErr)
+	}()
+
+	rec := newTestRecord("input", 0, 0, "key", "value")
+	err = tsk.Process(context.Background(), rec)
+
+	require.Error(t, err)
+	require.ErrorIs(t, err, processorErr)
+
+	// No record should be produced
+	producer.AssertNoProducedRecords(t)
+}
+
+func TestTopologyTask_FilterError(t *testing.T) {
+	// Test: Filter predicate returns error
+	filterErr := errors.New("filter predicate failed")
+
+	topo := topology.New()
+	topo.AddSource(
+		"source", "input", serde.ToUntypedDeserialser(serde.String()), serde.ToUntypedDeserialser(serde.String()),
+	)
+
+	var filterSupplier processor.Supplier[string, string, string, string] = func() processor.Processor[string, string, string, string] {
+		return builtins.NewFilterProcessor(
+			func(_ context.Context, k, v string) (bool, error) {
+				return false, filterErr
+			},
+		)
+	}
+	topo.AddProcessor("filter", filterSupplier.ToUntyped(), "source")
+	topo.AddSink(
+		"sink", "output", serde.ToUntypedSerialiser(serde.String()), serde.ToUntypedSerialiser(serde.String()),
+		"filter",
+	)
+
+	factory, err := task.NewTopologyTaskFactory(topo, logger.NewNoopLogger())
+	require.NoError(t, err)
+
+	producer := mockkafka.NewClient()
+	tp := kafka.TopicPartition{Topic: "input", Partition: 0}
+
+	tsk, err := factory.CreateTask(tp, producer)
+	require.NoError(t, err)
+	defer func() {
+		closeErr := tsk.Close()
+		require.NoError(t, closeErr)
+	}()
+
+	rec := newTestRecord("input", 0, 0, "key", "value")
+	err = tsk.Process(context.Background(), rec)
+
+	require.Error(t, err)
+	require.ErrorIs(t, err, filterErr)
+
+	producer.AssertNoProducedRecords(t)
+}
+
+func TestTopologyTask_MarkAndCommitIntegration(t *testing.T) {
+	// Integration test demonstrating the full mark/commit flow
+	// that the runner would use after processing records
+
+	topo := topology.New()
+	topo.AddSource(
+		"source", "input", serde.ToUntypedDeserialser(serde.String()), serde.ToUntypedDeserialser(serde.String()),
+	)
+
+	var supplier processor.Supplier[string, string, string, string] = func() processor.Processor[string, string, string, string] {
+		return builtins.NewPassthroughProcessor[string, string]()
+	}
+	topo.AddProcessor("proc", supplier.ToUntyped(), "source")
+	topo.AddSink(
+		"sink", "output", serde.ToUntypedSerialiser(serde.String()), serde.ToUntypedSerialiser(serde.String()), "proc",
+	)
+
+	factory, err := task.NewTopologyTaskFactory(topo, logger.NewNoopLogger())
+	require.NoError(t, err)
+
+	client := mockkafka.NewClient()
+	tp := kafka.TopicPartition{Topic: "input", Partition: 0}
+
+	tsk, err := factory.CreateTask(tp, client)
+	require.NoError(t, err)
+	defer func() { _ = tsk.Close() }()
+
+	// Simulate runner processing a batch of records
+	records := []kafka.ConsumerRecord{
+		newTestRecord("input", 0, 0, "k1", "v1"),
+		newTestRecord("input", 0, 1, "k2", "v2"),
+		newTestRecord("input", 0, 2, "k3", "v3"),
+	}
+
+	for _, rec := range records {
+		err = tsk.Process(context.Background(), rec)
+		require.NoError(t, err)
+
+		// Runner marks each record after successful processing
+		client.MarkRecords(rec)
+	}
+
+	// Verify processing worked
+	client.AssertProducedCount(t, 3)
+
+	// Verify marking state before commit
+	client.AssertMarkedCount(t, 3)
+	client.AssertMarkedOffset(t, tp, 3) // next offset to fetch = 2 + 1
+
+	// Runner commits periodically
+	err = client.Commit(context.Background())
+	require.NoError(t, err)
+
+	// Verify commit state
+	client.AssertCommittedOffset(t, tp, 3)
+	client.AssertNoMarkedRecords(t) // cleared after successful commit
+}
+
+func TestTopologyTask_MultiPartitionMarkAndCommit(t *testing.T) {
+	// Test that mark/commit works correctly across multiple partitions
+	// with a shared client (as would happen with a single consumer)
+
+	topo := topology.New()
+	topo.AddSource(
+		"source", "input", serde.ToUntypedDeserialser(serde.String()), serde.ToUntypedDeserialser(serde.String()),
+	)
+
+	var supplier processor.Supplier[string, string, string, string] = func() processor.Processor[string, string, string, string] {
+		return builtins.NewPassthroughProcessor[string, string]()
+	}
+	topo.AddProcessor("proc", supplier.ToUntyped(), "source")
+	topo.AddSink(
+		"sink", "output", serde.ToUntypedSerialiser(serde.String()), serde.ToUntypedSerialiser(serde.String()), "proc",
+	)
+
+	factory, err := task.NewTopologyTaskFactory(topo, logger.NewNoopLogger())
+	require.NoError(t, err)
+
+	// Single client shared by multiple tasks (like a real consumer)
+	client := mockkafka.NewClient()
+
+	tp0 := kafka.TopicPartition{Topic: "input", Partition: 0}
+	tp1 := kafka.TopicPartition{Topic: "input", Partition: 1}
+
+	task0, err := factory.CreateTask(tp0, client)
+	require.NoError(t, err)
+	defer func() { _ = task0.Close() }()
+
+	task1, err := factory.CreateTask(tp1, client)
+	require.NoError(t, err)
+	defer func() { _ = task1.Close() }()
+
+	// Process and mark records on partition 0
+	rec0 := newTestRecord("input", 0, 5, "k0", "v0")
+	err = task0.Process(context.Background(), rec0)
+	require.NoError(t, err)
+	client.MarkRecords(rec0)
+
+	// Process and mark records on partition 1
+	rec1 := newTestRecord("input", 1, 10, "k1", "v1")
+	err = task1.Process(context.Background(), rec1)
+	require.NoError(t, err)
+	client.MarkRecords(rec1)
+
+	// Verify both are marked with correct offsets
+	client.AssertMarkedCount(t, 2)
+	client.AssertMarkedOffset(t, tp0, 6)  // 5 + 1
+	client.AssertMarkedOffset(t, tp1, 11) // 10 + 1
+
+	// Single commit covers all partitions
+	err = client.Commit(context.Background())
+	require.NoError(t, err)
+
+	// Verify both partitions are committed
+	client.AssertCommittedOffset(t, tp0, 6)
+	client.AssertCommittedOffset(t, tp1, 11)
+}
+
+func TestTopologyTask_CommitError(t *testing.T) {
+	// Test that commit errors are properly propagated and marked records preserved
+
+	topo := topology.New()
+	topo.AddSource(
+		"source", "input", serde.ToUntypedDeserialser(serde.String()), serde.ToUntypedDeserialser(serde.String()),
+	)
+	topo.AddSink(
+		"sink", "output", serde.ToUntypedSerialiser(serde.String()), serde.ToUntypedSerialiser(serde.String()),
+		"source",
+	)
+
+	factory, err := task.NewTopologyTaskFactory(topo, logger.NewNoopLogger())
+	require.NoError(t, err)
+
+	commitErr := errors.New("commit failed")
+	client := mockkafka.NewClient(mockkafka.WithCommitError(commitErr))
+	tp := kafka.TopicPartition{Topic: "input", Partition: 0}
+
+	tsk, err := factory.CreateTask(tp, client)
+	require.NoError(t, err)
+	defer func() { _ = tsk.Close() }()
+
+	// Process and mark a record
+	rec := newTestRecord("input", 0, 0, "k", "v")
+	err = tsk.Process(context.Background(), rec)
+	require.NoError(t, err)
+	client.MarkRecords(rec)
+
+	// Commit should fail
+	err = client.Commit(context.Background())
+	require.Error(t, err)
+	require.ErrorIs(t, err, commitErr)
+
+	// Marked records should still be there (not cleared on error)
+	// This allows retry
+	client.AssertMarkedCount(t, 1)
 }

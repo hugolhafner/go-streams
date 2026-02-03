@@ -3,12 +3,17 @@ package task
 import (
 	"context"
 	"fmt"
+	"sync"
 
 	"github.com/hugolhafner/go-streams/kafka"
 	"github.com/hugolhafner/go-streams/logger"
 	"github.com/hugolhafner/go-streams/processor"
 	"github.com/hugolhafner/go-streams/record"
 	"github.com/hugolhafner/go-streams/topology"
+)
+
+var (
+	ErrTaskClosed = fmt.Errorf("task is closed")
 )
 
 var _ Task = (*TopologyTask)(nil)
@@ -20,22 +25,16 @@ type TopologyTask struct {
 	contexts   map[string]*nodeContext
 	sinks      map[string]*sinkHandler
 	producer   kafka.Producer
-	offset     kafka.Offset
 	topology   *topology.Topology
 
 	logger logger.Logger
+
+	closed bool
+	mu     sync.RWMutex
 }
 
 func (t *TopologyTask) Partition() kafka.TopicPartition {
 	return t.partition
-}
-
-func (t *TopologyTask) CurrentOffset() (kafka.Offset, bool) {
-	if t.offset.Offset == -1 {
-		return kafka.Offset{}, false
-	}
-
-	return t.offset, true
 }
 
 func (t *TopologyTask) processSafe(ctx context.Context, rec kafka.ConsumerRecord) (err error) {
@@ -74,7 +73,7 @@ func (t *TopologyTask) processSafe(ctx context.Context, rec kafka.ConsumerRecord
 	for _, childName := range children {
 		t.logger.Debug("Forwarding record to child node", "node", childName)
 		if err := t.processAt(ctx, childName, untypedRec); err != nil {
-			return err
+			return NewProcessError(err, childName)
 		}
 	}
 
@@ -82,14 +81,11 @@ func (t *TopologyTask) processSafe(ctx context.Context, rec kafka.ConsumerRecord
 }
 
 func (t *TopologyTask) Process(ctx context.Context, rec kafka.ConsumerRecord) error {
-	err := t.processSafe(ctx, rec)
-
-	t.offset = kafka.Offset{
-		Offset:      rec.Offset + 1,
-		LeaderEpoch: rec.LeaderEpoch,
+	if t.closed {
+		return ErrTaskClosed
 	}
 
-	return err
+	return t.processSafe(ctx, rec)
 }
 
 func (t *TopologyTask) processAt(ctx context.Context, nodeName string, rec *record.UntypedRecord) error {
@@ -108,7 +104,23 @@ func (t *TopologyTask) processAt(ctx context.Context, nodeName string, rec *reco
 	return proc.Process(ctx, rec)
 }
 
+func (t *TopologyTask) IsClosed() bool {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+
+	return t.closed
+}
+
 func (t *TopologyTask) Close() error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	if t.closed {
+		return nil
+	}
+
+	t.closed = true
+
 	var lastErr error
 	for name, proc := range t.processors {
 		if err := proc.Close(); err != nil {

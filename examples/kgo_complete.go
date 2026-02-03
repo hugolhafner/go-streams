@@ -5,10 +5,14 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
+	"github.com/hugolhafner/dskit/backoff"
 	"github.com/hugolhafner/go-streams"
+	"github.com/hugolhafner/go-streams/errorhandler"
 	"github.com/hugolhafner/go-streams/kafka"
 	"github.com/hugolhafner/go-streams/kstream"
+	"github.com/hugolhafner/go-streams/logger"
 	"github.com/hugolhafner/go-streams/plugins/zaplogger"
 	"github.com/hugolhafner/go-streams/runner"
 	"github.com/hugolhafner/go-streams/serde"
@@ -17,7 +21,7 @@ import (
 
 // {"id": "order1", "amount": 100.0, "user_id": "user1"}
 func filterInvalidOrders(ctx context.Context, k []byte, v Order) (bool, error) {
-	keep := v.ID != "" && v.Amount > 0
+	keep := v.ID != "" && v.Amount >= 0
 	if !keep {
 		zap.L().Warn("Invalid order", zap.String("key", string(k)), zap.Any("value", v))
 	} else {
@@ -80,7 +84,21 @@ func KgoComplete() {
 		app.Close()
 	}()
 
-	if err := app.RunWith(context.Background(), runner.NewSingleThreadedRunner()); err != nil {
+	if err := app.RunWith(
+		context.Background(), runner.NewSingleThreadedRunner(
+			runner.WithLogger(klogger),
+			runner.WithErrorHandler(
+				errorhandler.ActionLogger(
+					klogger,
+					logger.InfoLevel,
+					errorhandler.WithMaxAttempts(
+						3, backoff.NewFixed(time.Second),
+						errorhandler.WithDLQ(errorhandler.LogAndContinue(klogger)),
+					),
+				),
+			),
+		),
+	); err != nil {
 		panic(err)
 	}
 }

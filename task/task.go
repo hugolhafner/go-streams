@@ -10,6 +10,6 @@ import (
 type Task interface {
 	Partition() kafka.TopicPartition
 	Process(ctx context.Context, record kafka.ConsumerRecord) error
-	CurrentOffset() (kafka.Offset, bool)
 	Close() error
+	IsClosed() bool
 }

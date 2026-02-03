@@ -11,9 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hugolhafner/go-streams/committer"
 	"github.com/hugolhafner/go-streams/kafka"
-	"github.com/hugolhafner/go-streams/runner"
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go/modules/redpanda"
 	"github.com/twmb/franz-go/pkg/kadm"
@@ -127,17 +125,6 @@ func createTopics(t *testing.T, broker string, numPartitions int32, topics ...st
 
 			cleanupAdmin := kadm.NewClient(cleanupClient)
 			_, _ = cleanupAdmin.DeleteTopics(cleanupCtx, topics...)
-		},
-	)
-}
-
-func aggressiveCommitter() runner.SingleThreadedOption {
-	return runner.WithCommitter(
-		func() committer.Committer {
-			return committer.NewPeriodicCommitter(
-				committer.WithMaxInterval(500*time.Millisecond),
-				committer.WithMaxCount(1),
-			)
 		},
 	)
 }
@@ -342,5 +329,5 @@ func getCommittedOffsets(t *testing.T, broker, groupID string) map[string]map[in
 
 type noopRebalanceCallback struct{}
 
-func (noopRebalanceCallback) OnAssigned([]kafka.TopicPartition) error { return nil }
-func (noopRebalanceCallback) OnRevoked([]kafka.TopicPartition) error  { return nil }
+func (noopRebalanceCallback) OnAssigned([]kafka.TopicPartition) {}
+func (noopRebalanceCallback) OnRevoked([]kafka.TopicPartition)  {}

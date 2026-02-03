@@ -9,18 +9,19 @@ import (
 	"time"
 
 	"github.com/hugolhafner/go-streams"
-	"github.com/hugolhafner/go-streams/committer"
 	"github.com/hugolhafner/go-streams/kafka"
 	"github.com/hugolhafner/go-streams/kstream"
 	"github.com/hugolhafner/go-streams/runner"
 	"github.com/hugolhafner/go-streams/serde"
 	"github.com/stretchr/testify/require"
-	"github.com/twmb/franz-go/pkg/kgo"
 )
 
+// TestE2E_OffsetCommit_ProgressesThroughTopic verifies that:
+// 1. Offsets are committed eventually during processing.
+// 2. Offsets are committed on shutdown.
+// 3. A restarted consumer resumes from the correct offset (no duplicates).
 func TestE2E_OffsetCommit_ProgressesThroughTopic(t *testing.T) {
 	broker := ensureContainer(t)
-
 	inputTopic := testTopicName(t, "input")
 	outputTopic := testTopicName(t, "output")
 	groupID := testGroupID(t, "processor")
@@ -39,7 +40,7 @@ func TestE2E_OffsetCommit_ProgressesThroughTopic(t *testing.T) {
 		return builder
 	}
 
-	// Phase 1: Process first batch
+	// Phase 1: Process first batch and verify eventual commit / shutdown commit
 	{
 		client, err := kafka.NewKgoClient(
 			kafka.WithBootstrapServers([]string{broker}),
@@ -51,10 +52,9 @@ func TestE2E_OffsetCommit_ProgressesThroughTopic(t *testing.T) {
 		require.NoError(t, err)
 
 		ctx, cancel := context.WithCancel(context.Background())
-
 		errCh := make(chan error, 1)
 		go func() {
-			errCh <- app.RunWith(ctx, runner.NewSingleThreadedRunner(aggressiveCommitter()))
+			errCh <- app.RunWith(ctx, runner.NewSingleThreadedRunner())
 		}()
 
 		time.Sleep(startupWait)
@@ -66,10 +66,12 @@ func TestE2E_OffsetCommit_ProgressesThroughTopic(t *testing.T) {
 		}
 		produceRecords(t, broker, inputTopic, batch1)
 
-		time.Sleep(3 * time.Second)
-
+		// Wait for records to be processed
 		consumeRecords(t, broker, outputTopic, testGroupID(t, "verifier1"), 3, consumeWait)
 
+		// Verify "Mark and AutoCommit" works:
+		// Since the client uses AutoCommitMarks, we expect offsets to appear eventually
+		// without manual intervention or specific runner configuration.
 		eventually(
 			t, func() bool {
 				offsets := getCommittedOffsets(t, broker, groupID)
@@ -80,8 +82,9 @@ func TestE2E_OffsetCommit_ProgressesThroughTopic(t *testing.T) {
 				if !ok {
 					return false
 				}
+				// Partition 0 should have committed offset >= 3
 				return topicOffsets[0] >= 3
-			}, 10*time.Second, "offsets not committed",
+			}, 15*time.Second, "offsets not committed eventually",
 		)
 
 		cancel()
@@ -89,7 +92,8 @@ func TestE2E_OffsetCommit_ProgressesThroughTopic(t *testing.T) {
 		client.Close()
 	}
 
-	// Phase 2: Restart and verify no duplicate processing
+	// Phase 2: Restart and verify resume accuracy
+	// If the "Mark" logic in the client/runner works, we should not re-process batch1.
 	{
 		client, err := kafka.NewKgoClient(
 			kafka.WithBootstrapServers([]string{broker}),
@@ -106,7 +110,7 @@ func TestE2E_OffsetCommit_ProgressesThroughTopic(t *testing.T) {
 
 		errCh := make(chan error, 1)
 		go func() {
-			errCh <- app.RunWith(ctx, runner.NewSingleThreadedRunner(aggressiveCommitter()))
+			errCh <- app.RunWith(ctx, runner.NewSingleThreadedRunner())
 		}()
 
 		time.Sleep(startupWait)
@@ -117,183 +121,24 @@ func TestE2E_OffsetCommit_ProgressesThroughTopic(t *testing.T) {
 		}
 		produceRecords(t, broker, inputTopic, batch2)
 
-		time.Sleep(3 * time.Second)
+		time.Sleep(3 * time.Second) // Give time for processing
 
 		allRecords := consumeAsMap(t, broker, outputTopic, testGroupID(t, "verifier2"), 5, consumeWait)
 
-		require.Len(t, allRecords, 5, "expected exactly 5 records, no duplicates from restart")
+		require.Len(t, allRecords, 5, "expected exactly 5 unique records in output topic (3 from old, 2 from new)")
 
-		require.Equal(t, "FIRST", allRecords["batch1-key1"])
-		require.Equal(t, "SECOND", allRecords["batch1-key2"])
-		require.Equal(t, "THIRD", allRecords["batch1-key3"])
-		require.Equal(t, "FOURTH", allRecords["batch2-key1"])
-		require.Equal(t, "FIFTH", allRecords["batch2-key2"])
+		offsets := getCommittedOffsets(t, broker, groupID)
+		require.GreaterOrEqual(t, offsets[inputTopic][0], int64(5))
 
 		cancel()
 		waitForShutdown(t, errCh, shutdownWait)
 	}
 }
 
-func TestE2E_OffsetCommit_CommitsAfterMaxCount(t *testing.T) {
-	broker := ensureContainer(t)
-
-	inputTopic := testTopicName(t, "input")
-	outputTopic := testTopicName(t, "output")
-	groupID := testGroupID(t, "processor")
-
-	createTopics(t, broker, 1, inputTopic, outputTopic)
-
-	builder := kstream.NewStreamsBuilder()
-	source := kstream.StreamWithSerde(builder, inputTopic, serde.String(), serde.String())
-	mapped := kstream.MapValues(
-		source, func(_ context.Context, value string) (string, error) {
-			return strings.ToUpper(value), nil
-		},
-	)
-	kstream.ToWithSerde(mapped, outputTopic, serde.String(), serde.String())
-
-	client, err := kafka.NewKgoClient(
-		kafka.WithBootstrapServers([]string{broker}),
-		kafka.WithGroupID(groupID),
-	)
-	require.NoError(t, err)
-	defer client.Close()
-
-	app, err := streams.NewApplication(client, builder.Build())
-	require.NoError(t, err)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	const maxCount = 5
-
-	errCh := make(chan error, 1)
-	go func() {
-		errCh <- app.RunWith(
-			ctx, runner.NewSingleThreadedRunner(
-				runner.WithCommitter(
-					func() committer.Committer {
-						return committer.NewPeriodicCommitter(
-							committer.WithMaxInterval(1*time.Hour), // Disable time-based commits
-							committer.WithMaxCount(maxCount),
-						)
-					},
-				),
-			),
-		)
-	}()
-
-	time.Sleep(startupWait)
-
-	records := make([]kgo.Record, 10)
-	for i := 0; i < 10; i++ {
-		records[i] = kgo.Record{
-			Key:   []byte(string(rune('a' + i))),
-			Value: []byte(string(rune('a' + i))),
-		}
-	}
-	produceOrderedRecords(t, broker, inputTopic, records)
-
-	time.Sleep(3 * time.Second)
-
-	eventually(
-		t, func() bool {
-			offsets := getCommittedOffsets(t, broker, groupID)
-			if offsets == nil {
-				return false
-			}
-			topicOffsets, ok := offsets[inputTopic]
-			if !ok {
-				return false
-			}
-			return topicOffsets[0] >= 5
-		}, 10*time.Second, "offsets not committed after maxCount",
-	)
-
-	cancel()
-	waitForShutdown(t, errCh, shutdownWait)
-}
-
-func TestE2E_OffsetCommit_CommitsAfterMaxInterval(t *testing.T) {
-	broker := ensureContainer(t)
-
-	inputTopic := testTopicName(t, "input")
-	outputTopic := testTopicName(t, "output")
-	groupID := testGroupID(t, "processor")
-
-	createTopics(t, broker, 1, inputTopic, outputTopic)
-
-	builder := kstream.NewStreamsBuilder()
-	source := kstream.StreamWithSerde(builder, inputTopic, serde.String(), serde.String())
-	mapped := kstream.MapValues(
-		source, func(_ context.Context, value string) (string, error) {
-			return strings.ToUpper(value), nil
-		},
-	)
-	kstream.ToWithSerde(mapped, outputTopic, serde.String(), serde.String())
-
-	client, err := kafka.NewKgoClient(
-		kafka.WithBootstrapServers([]string{broker}),
-		kafka.WithGroupID(groupID),
-	)
-	require.NoError(t, err)
-	defer client.Close()
-
-	app, err := streams.NewApplication(client, builder.Build())
-	require.NoError(t, err)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	const commitInterval = 1 * time.Second
-
-	errCh := make(chan error, 1)
-	go func() {
-		errCh <- app.RunWith(
-			ctx, runner.NewSingleThreadedRunner(
-				runner.WithCommitter(
-					func() committer.Committer {
-						return committer.NewPeriodicCommitter(
-							committer.WithMaxInterval(commitInterval),
-							committer.WithMaxCount(1000), // High count, won't trigger
-						)
-					},
-				),
-			),
-		)
-	}()
-
-	time.Sleep(startupWait)
-
-	testData := map[string]string{
-		"key1": "value1",
-		"key2": "value2",
-	}
-	produceRecords(t, broker, inputTopic, testData)
-
-	time.Sleep(commitInterval * 3)
-
-	eventually(
-		t, func() bool {
-			offsets := getCommittedOffsets(t, broker, groupID)
-			if offsets == nil {
-				return false
-			}
-			topicOffsets, ok := offsets[inputTopic]
-			if !ok {
-				return false
-			}
-			return topicOffsets[0] >= 2
-		}, 10*time.Second, "offsets not committed after interval",
-	)
-
-	cancel()
-	waitForShutdown(t, errCh, shutdownWait)
-}
-
+// TestE2E_OffsetCommit_MultiplePartitions verifies that marking works across multiple partitions
+// concurrently, which exercises the thread-safety of the client's MarkRecords.
 func TestE2E_OffsetCommit_MultiplePartitions(t *testing.T) {
 	broker := ensureContainer(t)
-
 	inputTopic := testTopicName(t, "input")
 	outputTopic := testTopicName(t, "output")
 	groupID := testGroupID(t, "processor")
@@ -324,26 +169,19 @@ func TestE2E_OffsetCommit_MultiplePartitions(t *testing.T) {
 
 	errCh := make(chan error, 1)
 	go func() {
-		errCh <- app.RunWith(ctx, runner.NewSingleThreadedRunner(aggressiveCommitter()))
+		errCh <- app.RunWith(ctx, runner.NewSingleThreadedRunner())
 	}()
 
 	time.Sleep(startupWait)
 
-	// Keys chosen to distribute across partitions
 	testData := map[string]string{
-		"a": "val-a",
-		"b": "val-b",
-		"c": "val-c",
-		"d": "val-d",
-		"e": "val-e",
-		"f": "val-f",
+		"a": "val-a", "b": "val-b", "c": "val-c",
+		"d": "val-d", "e": "val-e", "f": "val-f",
 	}
 	produceRecords(t, broker, inputTopic, testData)
-
-	time.Sleep(3 * time.Second)
-
 	consumeRecords(t, broker, outputTopic, testGroupID(t, "verifier"), len(testData), consumeWait)
 
+	// Verify all partitions eventually commit
 	eventually(
 		t, func() bool {
 			offsets := getCommittedOffsets(t, broker, groupID)

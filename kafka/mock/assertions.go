@@ -1,4 +1,4 @@
-package mock
+package mockkafka
 
 import (
 	"bytes"
@@ -199,4 +199,57 @@ func (c *Client) AssertHeader(t testing.TB, topic string, key []byte, headerKey 
 	}
 
 	t.Errorf("no record with key=%q found in topic %q", string(key), topic)
+}
+
+// AssertMarkedCount verifies that exactly n records have been marked (but not yet committed).
+func (c *Client) AssertMarkedCount(t testing.TB, expected int) {
+	t.Helper()
+
+	actual := len(c.MarkedRecords())
+	require.Equal(t, expected, actual, "expected %d marked records, got %d", expected, actual)
+}
+
+// AssertMarked verifies that a record with the given topic, partition, and offset was marked.
+func (c *Client) AssertMarked(t testing.TB, topic string, partition int32, offset int64) {
+	t.Helper()
+
+	records := c.MarkedRecords()
+	for _, r := range records {
+		if r.Topic == topic && r.Partition == partition && r.Offset == offset {
+			return
+		}
+	}
+
+	t.Errorf(
+		"expected record at %s-%d offset %d to be marked, but it was not found",
+		topic, partition, offset,
+	)
+}
+
+// AssertMarkedOffset verifies that the marked offset for a partition matches the expected value.
+// Note: The marked offset is the *next* offset to fetch (record.Offset + 1).
+func (c *Client) AssertMarkedOffset(t testing.TB, tp kafka.TopicPartition, expectedOffset int64) {
+	t.Helper()
+
+	offsets := c.MarkedOffsets()
+	actual, ok := offsets[tp]
+	require.True(
+		t, ok,
+		"expected marked offset for %s-%d, but none found",
+		tp.Topic, tp.Partition,
+	)
+
+	require.Equal(
+		t, expectedOffset, actual.Offset,
+		"expected marked offset %d for %s-%d, got %d",
+		expectedOffset, tp.Topic, tp.Partition, actual.Offset,
+	)
+}
+
+// AssertNoMarkedRecords verifies that no records are currently marked.
+func (c *Client) AssertNoMarkedRecords(t testing.TB) {
+	t.Helper()
+
+	records := c.MarkedRecords()
+	require.Equal(t, 0, len(records), "expected no marked records, got %d", len(records))
 }
