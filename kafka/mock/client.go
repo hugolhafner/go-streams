@@ -27,6 +27,10 @@ type Client struct {
 	producedRecords  []ProducedRecord
 	committedOffsets map[kafka.TopicPartition]kafka.Offset
 
+	// Mark/commit tracking
+	markedRecords []kafka.ConsumerRecord
+	markedOffsets map[kafka.TopicPartition]kafka.Offset
+
 	subscriptions      []string
 	rebalanceCb        kafka.RebalanceCallback
 	assignedPartitions []kafka.TopicPartition
@@ -36,7 +40,7 @@ type Client struct {
 
 	sendErr   func(topic string, key, value []byte) error
 	pollErr   func() error
-	commitErr func(offsets map[kafka.TopicPartition]kafka.Offset) error
+	commitErr func() error
 	pingErr   error
 
 	closed     bool
@@ -49,6 +53,8 @@ func NewClient(opts ...Option) *Client {
 		queuePositions:   make(map[kafka.TopicPartition]int),
 		producedRecords:  make([]ProducedRecord, 0),
 		committedOffsets: make(map[kafka.TopicPartition]kafka.Offset),
+		markedRecords:    make([]kafka.ConsumerRecord, 0),
+		markedOffsets:    make(map[kafka.TopicPartition]kafka.Offset),
 		maxPollRecords:   10,
 		pollDelay:        0,
 	}
@@ -90,7 +96,7 @@ func (c *Client) Subscribe(topics []string, rebalanceCb kafka.RebalanceCallback)
 		if rebalanceCb != nil {
 			// Unlock during callback to prevent deadlock
 			c.mu.Unlock()
-			_ = rebalanceCb.OnAssigned(partitions)
+			rebalanceCb.OnAssigned(partitions)
 			c.mu.Lock()
 		}
 	}
@@ -158,21 +164,57 @@ func (c *Client) Poll(ctx context.Context) ([]kafka.ConsumerRecord, error) {
 	return records, nil
 }
 
-// Commit stores the provided offsets as committed.
-// These can be verified using CommittedOffsets() or AssertCommitted().
-func (c *Client) Commit(offsets map[kafka.TopicPartition]kafka.Offset) error {
+// MarkRecords marks records as processed. The offsets will be committed
+// when Commit is called.
+func (c *Client) MarkRecords(records ...kafka.ConsumerRecord) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	for _, record := range records {
+		// Store the record for test assertions
+		c.markedRecords = append(c.markedRecords, record)
+
+		// Update the offset tracking (next offset to fetch = current + 1)
+		tp := record.TopicPartition()
+		nextOffset := kafka.Offset{
+			Offset:      record.Offset + 1,
+			LeaderEpoch: record.LeaderEpoch,
+		}
+
+		// Only update if this is a higher offset
+		if current, exists := c.markedOffsets[tp]; !exists || nextOffset.Offset > current.Offset {
+			c.markedOffsets[tp] = nextOffset
+		}
+	}
+}
+
+// Commit commits the offsets of all marked records.
+// After a successful commit, the marked records are cleared.
+func (c *Client) Commit(ctx context.Context) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	// Check context cancellation
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+
 	if c.commitErr != nil {
-		if err := c.commitErr(offsets); err != nil {
+		if err := c.commitErr(); err != nil {
 			return err
 		}
 	}
 
-	for tp, offset := range offsets {
+	// Commit the marked offsets
+	for tp, offset := range c.markedOffsets {
 		c.committedOffsets[tp] = offset
 	}
+
+	// Clear marked state after successful commit
+	c.markedRecords = make([]kafka.ConsumerRecord, 0)
+	c.markedOffsets = make(map[kafka.TopicPartition]kafka.Offset)
 
 	return nil
 }
@@ -215,8 +257,14 @@ func (c *Client) Send(ctx context.Context, topic string, key, value []byte, head
 }
 
 // Flush is a no-op for the mock client since Send is synchronous.
-func (c *Client) Flush(timeout time.Duration) error {
-	return nil
+// It respects context cancellation for realistic behavior.
+func (c *Client) Flush(ctx context.Context) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+		return nil
+	}
 }
 
 // Ping checks if the mock client is operational.
@@ -312,12 +360,12 @@ func (c *Client) SetCommitError(err error) {
 	if err == nil {
 		c.commitErr = nil
 	} else {
-		c.commitErr = func(map[kafka.TopicPartition]kafka.Offset) error { return err }
+		c.commitErr = func() error { return err }
 	}
 }
 
 // SetCommitErrorFunc configures a function to determine Commit errors.
-func (c *Client) SetCommitErrorFunc(fn func(offsets map[kafka.TopicPartition]kafka.Offset) error) {
+func (c *Client) SetCommitErrorFunc(fn func() error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -334,21 +382,20 @@ func (c *Client) SetPingError(err error) {
 
 // TriggerAssign simulates a partition assignment event.
 // This calls the OnAssigned callback if one was registered via Subscribe.
-func (c *Client) TriggerAssign(partitions []kafka.TopicPartition) error {
+func (c *Client) TriggerAssign(partitions []kafka.TopicPartition) {
 	c.mu.Lock()
 	cb := c.rebalanceCb
 	c.assignedPartitions = append(c.assignedPartitions, partitions...)
 	c.mu.Unlock()
 
 	if cb != nil {
-		return cb.OnAssigned(partitions)
+		cb.OnAssigned(partitions)
 	}
-	return nil
 }
 
 // TriggerRevoke simulates a partition revocation event.
 // This calls the OnRevoked callback if one was registered via Subscribe.
-func (c *Client) TriggerRevoke(partitions []kafka.TopicPartition) error {
+func (c *Client) TriggerRevoke(partitions []kafka.TopicPartition) {
 	c.mu.Lock()
 	cb := c.rebalanceCb
 
@@ -370,9 +417,8 @@ func (c *Client) TriggerRevoke(partitions []kafka.TopicPartition) error {
 	c.mu.Unlock()
 
 	if cb != nil {
-		return cb.OnRevoked(partitions)
+		cb.OnRevoked(partitions)
 	}
-	return nil
 }
 
 // ProducedRecords returns a copy of all records that have been sent via Send.
@@ -421,6 +467,28 @@ func (c *Client) CommittedOffset(tp kafka.TopicPartition) (kafka.Offset, bool) {
 	return offset, ok
 }
 
+// MarkedRecords returns a copy of all records that have been marked but not yet committed.
+func (c *Client) MarkedRecords() []kafka.ConsumerRecord {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	result := make([]kafka.ConsumerRecord, len(c.markedRecords))
+	copy(result, c.markedRecords)
+	return result
+}
+
+// MarkedOffsets returns a copy of the current marked offsets (not yet committed).
+func (c *Client) MarkedOffsets() map[kafka.TopicPartition]kafka.Offset {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	result := make(map[kafka.TopicPartition]kafka.Offset, len(c.markedOffsets))
+	for k, v := range c.markedOffsets {
+		result[k] = v
+	}
+	return result
+}
+
 // Subscriptions returns the topics the client is subscribed to.
 func (c *Client) Subscriptions() []string {
 	c.mu.RLock()
@@ -450,7 +518,7 @@ func (c *Client) IsClosed() bool {
 }
 
 // Reset clears all state, allowing the mock to be reused.
-// This clears produced records, committed offsets, and resets queue positions.
+// This clears produced records, committed offsets, marked records, and resets queue positions.
 // It does not clear the record queues themselves.
 func (c *Client) Reset() {
 	c.mu.Lock()
@@ -458,6 +526,8 @@ func (c *Client) Reset() {
 
 	c.producedRecords = make([]ProducedRecord, 0)
 	c.committedOffsets = make(map[kafka.TopicPartition]kafka.Offset)
+	c.markedRecords = make([]kafka.ConsumerRecord, 0)
+	c.markedOffsets = make(map[kafka.TopicPartition]kafka.Offset)
 	c.queuePositions = make(map[kafka.TopicPartition]int)
 	c.closed = false
 }
@@ -471,6 +541,8 @@ func (c *Client) Clear() {
 	c.queuePositions = make(map[kafka.TopicPartition]int)
 	c.producedRecords = make([]ProducedRecord, 0)
 	c.committedOffsets = make(map[kafka.TopicPartition]kafka.Offset)
+	c.markedRecords = make([]kafka.ConsumerRecord, 0)
+	c.markedOffsets = make(map[kafka.TopicPartition]kafka.Offset)
 	c.subscriptions = nil
 	c.assignedPartitions = nil
 	c.rebalanceCb = nil

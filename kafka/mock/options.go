@@ -2,8 +2,6 @@ package mockkafka
 
 import (
 	"time"
-
-	"github.com/hugolhafner/go-streams/kafka"
 )
 
 // Option is a functional option for configuring a MockClient.
@@ -44,7 +42,7 @@ func WithPollError(err error) Option {
 // WithCommitError configures an error to be returned by all Commit calls.
 func WithCommitError(err error) Option {
 	return func(c *Client) {
-		c.commitErr = func(map[kafka.TopicPartition]kafka.Offset) error { return err }
+		c.commitErr = func() error { return err }
 	}
 }
 
