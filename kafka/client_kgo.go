@@ -14,25 +14,27 @@ import (
 var _ Client = (*KgoClient)(nil)
 
 type KgoClientConfig struct {
-	BootstrapServers  []string
-	GroupID           string
-	SessionTimeout    time.Duration
-	HeartbeatInterval time.Duration
-	MaxPollRecords    int
-	PollTimeout       time.Duration
+	BootstrapServers   []string
+	GroupID            string
+	SessionTimeout     time.Duration
+	HeartbeatInterval  time.Duration
+	AutoCommitInterval time.Duration
+	MaxPollRecords     int
+	PollTimeout        time.Duration
 
 	Logger logger.Logger
 }
 
 func defaultConfig() KgoClientConfig {
 	return KgoClientConfig{
-		BootstrapServers:  []string{"localhost:9092"},
-		GroupID:           "default-group",
-		SessionTimeout:    45 * time.Second,
-		HeartbeatInterval: 3 * time.Second,
-		PollTimeout:       3 * time.Second,
-		MaxPollRecords:    10,
-		Logger:            logger.NewNoopLogger(),
+		BootstrapServers:   []string{"localhost:9092"},
+		GroupID:            "default-group",
+		SessionTimeout:     45 * time.Second,
+		HeartbeatInterval:  3 * time.Second,
+		PollTimeout:        3 * time.Second,
+		AutoCommitInterval: 5 * time.Second,
+		MaxPollRecords:     10,
+		Logger:             logger.NewNoopLogger(),
 	}
 }
 
@@ -86,6 +88,7 @@ func NewKgoClient(opts ...KgoOption) (*KgoClient, error) {
 		kgo.SessionTimeout(cfg.SessionTimeout),
 		kgo.HeartbeatInterval(cfg.HeartbeatInterval),
 		kgo.AutoCommitMarks(),
+		kgo.AutoCommitInterval(cfg.AutoCommitInterval),
 		// TODO: Metrics support
 	}
 
