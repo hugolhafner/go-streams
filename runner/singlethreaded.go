@@ -213,12 +213,20 @@ func (r *SingleThreaded) processRecord(ctx context.Context, record kafka.Consume
 	}
 }
 
+func (r *SingleThreaded) emitErr(err error) {
+	select {
+	case r.errChan <- err:
+	default:
+		r.logger.Error("Error channel full, dropping error", "error", err)
+	}
+}
+
 func (r *SingleThreaded) OnAssigned(partitions []kafka.TopicPartition) {
 	r.logger.Debug("Assigned partitions", "partitions", partitions)
 	r.logger.Debug("Creating tasks for partitions")
 	if err := r.taskManager.CreateTasks(partitions); err != nil {
 		r.logger.Error("Failed to create tasks on assigned partitions", "error", err)
-		r.errChan <- err
+		r.emitErr(err)
 	}
 }
 
@@ -228,8 +236,7 @@ func (r *SingleThreaded) OnRevoked(partitions []kafka.TopicPartition) {
 	r.logger.Debug("Closing tasks for revoked partitions")
 	if err := r.taskManager.CloseTasks(partitions); err != nil {
 		r.logger.Error("Failed to close tasks on revoked partitions", "error", err)
-		r.errChan <- err
-		return
+		r.emitErr(err)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
@@ -243,8 +250,7 @@ func (r *SingleThreaded) OnRevoked(partitions []kafka.TopicPartition) {
 	r.logger.Debug("Deleting tasks for revoked partitions")
 	if err := r.taskManager.DeleteTasks(partitions); err != nil {
 		r.logger.Error("Failed to delete tasks on revoked partitions", "error", err)
-		r.errChan <- err
-		return
+		r.emitErr(err)
 	}
 }
 

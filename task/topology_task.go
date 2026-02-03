@@ -3,6 +3,7 @@ package task
 import (
 	"context"
 	"fmt"
+	"sync"
 
 	"github.com/hugolhafner/go-streams/kafka"
 	"github.com/hugolhafner/go-streams/logger"
@@ -27,11 +28,9 @@ type TopologyTask struct {
 	topology   *topology.Topology
 
 	logger logger.Logger
-	closed bool
-}
 
-func (t *TopologyTask) IsClosed() bool {
-	return t.closed
+	closed bool
+	mu     sync.RWMutex
 }
 
 func (t *TopologyTask) Partition() kafka.TopicPartition {
@@ -105,7 +104,21 @@ func (t *TopologyTask) processAt(ctx context.Context, nodeName string, rec *reco
 	return proc.Process(ctx, rec)
 }
 
+func (t *TopologyTask) IsClosed() bool {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+
+	return t.closed
+}
+
 func (t *TopologyTask) Close() error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	if t.closed {
+		return nil
+	}
+
 	t.closed = true
 
 	var lastErr error
