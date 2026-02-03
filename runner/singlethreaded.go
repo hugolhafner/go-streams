@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/hugolhafner/go-streams/committer"
 	"github.com/hugolhafner/go-streams/errorhandler"
 	"github.com/hugolhafner/go-streams/kafka"
 	"github.com/hugolhafner/go-streams/logger"
@@ -23,7 +22,6 @@ type SingleThreaded struct {
 	topology    *topology.Topology
 
 	errorHandler errorhandler.Handler
-	committer    committer.Committer
 	logger       logger.Logger
 
 	// errChan is used to signal fatal errors from goroutines to the main Run loop
@@ -46,7 +44,6 @@ func NewSingleThreadedRunner(
 			producer:     producer,
 			taskManager:  task.NewManager(f, producer, config.Logger),
 			topology:     t,
-			committer:    config.CommitterFactory(),
 			errorHandler: config.ErrorHandler,
 			errChan:      make(chan error, 1),
 			logger: config.Logger.
@@ -68,35 +65,19 @@ func (r *SingleThreaded) sourceTopics() []string {
 
 func (r *SingleThreaded) shutdown() {
 	r.logger.Info("Shutting down runner")
-	r.committer.Close()
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*30)
 	defer cancel()
 
-	if err := r.commitOffsets(ctx); err != nil {
+	if err := r.consumer.Commit(ctx); err != nil {
 		r.logger.Error("Failed to commit offsets during shutdown", "error", err)
 	}
+
+	if err := r.producer.Flush(ctx); err != nil {
+		r.logger.Error("Failed to flush producer during shutdown", "error", err)
+	}
+
 	r.logger.Info("Shutdown complete")
-}
-
-func (r *SingleThreaded) commitOffsets(_ context.Context) error {
-	offsets := r.taskManager.GetCommitOffsets()
-	if len(offsets) == 0 {
-		return nil
-	}
-
-	return r.consumer.Commit(offsets)
-}
-
-func (r *SingleThreaded) doCommit(ctx context.Context) {
-	r.logger.Debug("Committing offsets")
-	err := r.commitOffsets(ctx)
-	if err == nil {
-		r.logger.Debug("Successfully committed offsets")
-		return
-	}
-
-	r.logger.Error("Failed to commit offsets", "error", err)
 }
 
 func (r *SingleThreaded) doPoll(ctx context.Context) error {
@@ -107,16 +88,30 @@ func (r *SingleThreaded) doPoll(ctx context.Context) error {
 		return fmt.Errorf("failed to poll: %w", err)
 	}
 
+	if len(records) == 0 {
+		r.logger.Debug("No records received from poll")
+		return nil
+	}
+
 	r.logger.Debug("Received records", "records", len(records))
 
 	for _, record := range records {
+		r.logger.Debug(
+			"Processing record",
+			"key", string(record.Key),
+			"topic", record.Topic,
+			"partition", record.Partition,
+			"offset", record.Offset,
+		)
+
 		// only errors that should stop the runner are returned here
 		if err := r.processRecord(ctx, record); err != nil {
 			return fmt.Errorf("fatal error processing record: %w", err)
 		}
+
+		r.consumer.MarkRecords(record)
 	}
 
-	r.committer.RecordProcessed(len(records))
 	return nil
 }
 
@@ -182,7 +177,6 @@ func (r *SingleThreaded) processRecord(ctx context.Context, record kafka.Consume
 	for {
 		err := t.Process(ctx, record)
 		if err == nil {
-			t.RecordOffset(record)
 			return nil
 		}
 
@@ -200,10 +194,8 @@ func (r *SingleThreaded) processRecord(ctx context.Context, record kafka.Consume
 			continue
 		case errorhandler.ActionSendToDLQ:
 			r.sendToDLQ(ctx, record, ec)
-			t.RecordOffset(record)
 			return nil
 		case errorhandler.ActionContinue:
-			t.RecordOffset(record)
 			return nil
 		default:
 			r.logger.Error(
@@ -222,6 +214,8 @@ func (r *SingleThreaded) processRecord(ctx context.Context, record kafka.Consume
 }
 
 func (r *SingleThreaded) OnAssigned(partitions []kafka.TopicPartition) {
+	r.logger.Debug("Assigned partitions", "partitions", partitions)
+	r.logger.Debug("Creating tasks for partitions")
 	if err := r.taskManager.CreateTasks(partitions); err != nil {
 		r.logger.Error("Failed to create tasks on assigned partitions", "error", err)
 		r.errChan <- err
@@ -230,13 +224,23 @@ func (r *SingleThreaded) OnAssigned(partitions []kafka.TopicPartition) {
 
 func (r *SingleThreaded) OnRevoked(partitions []kafka.TopicPartition) {
 	// Close tasks first to stop processing new records
+	r.logger.Debug("Revoking partitions", "partitions", partitions)
+	r.logger.Debug("Closing tasks for revoked partitions")
 	if err := r.taskManager.CloseTasks(partitions); err != nil {
 		r.logger.Error("Failed to close tasks on revoked partitions", "error", err)
 		r.errChan <- err
 		return
 	}
 
-	r.doCommit(context.Background())
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
+	defer cancel()
+
+	r.logger.Debug("Forcing a commit prior to revoking partitions")
+	if err := r.consumer.Commit(ctx); err != nil {
+		r.logger.Error("Failed to commit offsets on revoked partitions", "error", err)
+	}
+
+	r.logger.Debug("Deleting tasks for revoked partitions")
 	if err := r.taskManager.DeleteTasks(partitions); err != nil {
 		r.logger.Error("Failed to delete tasks on revoked partitions", "error", err)
 		r.errChan <- err
@@ -260,13 +264,6 @@ func (r *SingleThreaded) Run(ctx context.Context) error {
 		case <-ctx.Done():
 			r.logger.Debug("Context closed, shutting down Run()")
 			return nil
-		case _, ok := <-r.committer.C():
-			if !ok {
-				r.logger.Info("Commit loop got shut down signal in Run()")
-				return nil
-			}
-
-			r.doCommit(ctx)
 		default:
 			if err := r.doPoll(ctx); err != nil {
 				r.logger.Warn("Failed during record poll", "error", err)

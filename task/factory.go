@@ -58,7 +58,6 @@ func (f *topologyTaskFactory) CreateTask(partition kafka.TopicPartition, produce
 		contexts:   make(map[string]*nodeContext),
 		sinks:      make(map[string]*sinkHandler),
 		processors: make(map[string]processor.UntypedProcessor),
-		offset:     kafka.Offset{Offset: -1, LeaderEpoch: -1},
 		logger: f.logger.
 			With("component", "task").
 			With("topic", partition.Topic).

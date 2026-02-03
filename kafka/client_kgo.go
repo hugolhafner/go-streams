@@ -9,7 +9,6 @@ import (
 
 	"github.com/hugolhafner/go-streams/logger"
 	"github.com/twmb/franz-go/pkg/kgo"
-	"github.com/twmb/franz-go/pkg/kmsg"
 )
 
 var _ Client = (*KgoClient)(nil)
@@ -81,12 +80,12 @@ func NewKgoClient(opts ...KgoOption) (*KgoClient, error) {
 	kgoOpts := []kgo.Opt{
 		kgo.SeedBrokers(cfg.BootstrapServers...),
 		kgo.ConsumerGroup(cfg.GroupID),
-		kgo.DisableAutoCommit(),
 		kgo.OnPartitionsAssigned(kc.onAssigned),
 		kgo.OnPartitionsRevoked(kc.onRevoked),
 		kgo.WithLogger(newKgoLogger(kc.logger)),
 		kgo.SessionTimeout(cfg.SessionTimeout),
 		kgo.HeartbeatInterval(cfg.HeartbeatInterval),
+		kgo.AutoCommitMarks(),
 		// TODO: Metrics support
 	}
 
@@ -158,38 +157,12 @@ func (k *KgoClient) Poll(ctx context.Context) ([]ConsumerRecord, error) {
 	return convertRecords(fetches.Records()), nil
 }
 
-func (k *KgoClient) Commit(offsets map[TopicPartition]Offset) error {
-	toCommit := make(map[string]map[int32]kgo.EpochOffset)
-	for tp, offset := range offsets {
-		if _, ok := toCommit[tp.Topic]; !ok {
-			toCommit[tp.Topic] = make(map[int32]kgo.EpochOffset)
-		}
+func (k *KgoClient) MarkRecords(records ...ConsumerRecord) {
+	k.client.MarkCommitRecords(convertRecordsToKgo(records)...)
+}
 
-		toCommit[tp.Topic][tp.Partition] = kgo.EpochOffset{
-			Offset: offset.Offset,
-			Epoch:  offset.LeaderEpoch,
-		}
-
-		k.logger.Info(
-			"Preparing to commit offset", "topic", tp.Topic, "partition", tp.Partition,
-			"offset", offset.Offset,
-		)
-	}
-
-	onDoneCh := make(chan error)
-	onDone := func(_ *kgo.Client, _ *kmsg.OffsetCommitRequest, _ *kmsg.OffsetCommitResponse, err error) {
-		onDoneCh <- err
-	}
-
-	k.client.CommitOffsetsSync(context.Background(), toCommit, onDone)
-	err := <-onDoneCh
-
-	if err != nil {
-		k.logger.Error("Committing offsets error", "error", err)
-		return fmt.Errorf("commit offsets: %w", err)
-	}
-
-	return nil
+func (k *KgoClient) Commit(ctx context.Context) error {
+	return k.client.CommitMarkedOffsets(ctx)
 }
 
 func (k *KgoClient) Send(ctx context.Context, topic string, key, value []byte, headers map[string][]byte) error {
@@ -206,9 +179,7 @@ func (k *KgoClient) Send(ctx context.Context, topic string, key, value []byte, h
 	return results.FirstErr()
 }
 
-func (k *KgoClient) Flush(timeout time.Duration) error {
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
+func (k *KgoClient) Flush(ctx context.Context) error {
 	return k.client.Flush(ctx)
 }
 
@@ -218,6 +189,24 @@ func (k *KgoClient) Ping(ctx context.Context) error {
 
 func (k *KgoClient) Close() {
 	k.client.CloseAllowingRebalance()
+}
+
+func convertRecordsToKgo(records []ConsumerRecord) []*kgo.Record {
+	kgoRecords := make([]*kgo.Record, len(records))
+	for i, r := range records {
+		kgoRecords[i] = &kgo.Record{
+			Topic:       r.Topic,
+			Partition:   r.Partition,
+			Offset:      r.Offset,
+			Key:         r.Key,
+			Value:       r.Value,
+			Headers:     convertToKgoHeaders(r.Headers),
+			Timestamp:   r.Timestamp,
+			LeaderEpoch: r.LeaderEpoch,
+		}
+	}
+
+	return kgoRecords
 }
 
 func convertRecords(records []*kgo.Record) []ConsumerRecord {

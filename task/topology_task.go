@@ -24,11 +24,9 @@ type TopologyTask struct {
 	contexts   map[string]*nodeContext
 	sinks      map[string]*sinkHandler
 	producer   kafka.Producer
-	offset     kafka.Offset
 	topology   *topology.Topology
 
 	logger logger.Logger
-
 	closed bool
 }
 
@@ -38,14 +36,6 @@ func (t *TopologyTask) IsClosed() bool {
 
 func (t *TopologyTask) Partition() kafka.TopicPartition {
 	return t.partition
-}
-
-func (t *TopologyTask) CurrentOffset() (kafka.Offset, bool) {
-	if t.offset.Offset == -1 {
-		return kafka.Offset{}, false
-	}
-
-	return t.offset, true
 }
 
 func (t *TopologyTask) processSafe(ctx context.Context, rec kafka.ConsumerRecord) (err error) {
@@ -97,13 +87,6 @@ func (t *TopologyTask) Process(ctx context.Context, rec kafka.ConsumerRecord) er
 	}
 
 	return t.processSafe(ctx, rec)
-}
-
-func (t *TopologyTask) RecordOffset(rec kafka.ConsumerRecord) {
-	t.offset = kafka.Offset{
-		Offset:      rec.Offset + 1,
-		LeaderEpoch: rec.LeaderEpoch,
-	}
 }
 
 func (t *TopologyTask) processAt(ctx context.Context, nodeName string, rec *record.UntypedRecord) error {

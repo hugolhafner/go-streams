@@ -109,23 +109,6 @@ func (m *managerImpl) TaskFor(partition kafka.TopicPartition) (Task, bool) {
 	return task, exists
 }
 
-func (m *managerImpl) GetCommitOffsets() map[kafka.TopicPartition]kafka.Offset {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	offsets := make(map[kafka.TopicPartition]kafka.Offset)
-	for p, task := range m.tasks {
-		o, ok := task.CurrentOffset()
-		if !ok {
-			continue
-		}
-
-		offsets[p] = o
-	}
-
-	return offsets
-}
-
 func (m *managerImpl) Close() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()

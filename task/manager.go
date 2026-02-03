@@ -13,7 +13,5 @@ type Manager interface {
 	Tasks() map[kafka.TopicPartition]Task
 	TaskFor(partition kafka.TopicPartition) (Task, bool)
 
-	GetCommitOffsets() map[kafka.TopicPartition]kafka.Offset
-
 	Close() error
 }

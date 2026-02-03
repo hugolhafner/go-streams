@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/hugolhafner/go-streams"
-	"github.com/hugolhafner/go-streams/committer"
 	"github.com/hugolhafner/go-streams/kafka"
 	"github.com/hugolhafner/go-streams/kstream"
 	"github.com/hugolhafner/go-streams/runner"
@@ -54,7 +53,7 @@ func TestE2E_OffsetCommit_ProgressesThroughTopic(t *testing.T) {
 
 		errCh := make(chan error, 1)
 		go func() {
-			errCh <- app.RunWith(ctx, runner.NewSingleThreadedRunner(aggressiveCommitter()))
+			errCh <- app.RunWith(ctx, runner.NewSingleThreadedRunner())
 		}()
 
 		time.Sleep(startupWait)
@@ -106,7 +105,7 @@ func TestE2E_OffsetCommit_ProgressesThroughTopic(t *testing.T) {
 
 		errCh := make(chan error, 1)
 		go func() {
-			errCh <- app.RunWith(ctx, runner.NewSingleThreadedRunner(aggressiveCommitter()))
+			errCh <- app.RunWith(ctx, runner.NewSingleThreadedRunner())
 		}()
 
 		time.Sleep(startupWait)
@@ -324,7 +323,7 @@ func TestE2E_OffsetCommit_MultiplePartitions(t *testing.T) {
 
 	errCh := make(chan error, 1)
 	go func() {
-		errCh <- app.RunWith(ctx, runner.NewSingleThreadedRunner(aggressiveCommitter()))
+		errCh <- app.RunWith(ctx, runner.NewSingleThreadedRunner())
 	}()
 
 	time.Sleep(startupWait)

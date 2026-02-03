@@ -86,6 +86,7 @@ func KgoComplete() {
 
 	if err := app.RunWith(
 		context.Background(), runner.NewSingleThreadedRunner(
+			runner.WithLogger(klogger),
 			runner.WithErrorHandler(
 				errorhandler.ActionLogger(
 					klogger,

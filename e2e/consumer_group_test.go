@@ -51,7 +51,7 @@ func TestE2E_ConsumerGroup_SingleConsumer(t *testing.T) {
 
 	errCh := make(chan error, 1)
 	go func() {
-		errCh <- app.RunWith(ctx, runner.NewSingleThreadedRunner(aggressiveCommitter()))
+		errCh <- app.RunWith(ctx, runner.NewSingleThreadedRunner())
 	}()
 
 	time.Sleep(3 * time.Second)
@@ -108,7 +108,7 @@ func TestE2E_ConsumerGroup_RebalanceOnJoin(t *testing.T) {
 
 	errCh1 := make(chan error, 1)
 	go func() {
-		errCh1 <- app1.RunWith(ctx1, runner.NewSingleThreadedRunner(aggressiveCommitter()))
+		errCh1 <- app1.RunWith(ctx1, runner.NewSingleThreadedRunner())
 	}()
 
 	time.Sleep(3 * time.Second)
@@ -129,7 +129,7 @@ func TestE2E_ConsumerGroup_RebalanceOnJoin(t *testing.T) {
 
 	errCh2 := make(chan error, 1)
 	go func() {
-		errCh2 <- app2.RunWith(ctx2, runner.NewSingleThreadedRunner(aggressiveCommitter()))
+		errCh2 <- app2.RunWith(ctx2, runner.NewSingleThreadedRunner())
 	}()
 
 	waitForGroupMembers(t, broker, groupID, 2, 30*time.Second)
@@ -188,7 +188,7 @@ func TestE2E_ConsumerGroup_RebalanceOnLeave(t *testing.T) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		_ = app1.RunWith(ctx1, runner.NewSingleThreadedRunner(aggressiveCommitter()))
+		_ = app1.RunWith(ctx1, runner.NewSingleThreadedRunner())
 	}()
 
 	client2, err := kafka.NewKgoClient(
@@ -205,7 +205,7 @@ func TestE2E_ConsumerGroup_RebalanceOnLeave(t *testing.T) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		_ = app2.RunWith(ctx2, runner.NewSingleThreadedRunner(aggressiveCommitter()))
+		_ = app2.RunWith(ctx2, runner.NewSingleThreadedRunner())
 	}()
 
 	waitForGroupMembers(t, broker, groupID, 2, 30*time.Second)
@@ -289,7 +289,7 @@ func TestE2E_ConsumerGroup_ContinuousProcessingDuringRebalance(t *testing.T) {
 	defer cancel1()
 
 	go func() {
-		_ = app1.RunWith(ctx1, runner.NewSingleThreadedRunner(aggressiveCommitter()))
+		_ = app1.RunWith(ctx1, runner.NewSingleThreadedRunner())
 	}()
 
 	time.Sleep(3 * time.Second)
@@ -334,7 +334,7 @@ func TestE2E_ConsumerGroup_ContinuousProcessingDuringRebalance(t *testing.T) {
 	defer cancel2()
 
 	go func() {
-		_ = app2.RunWith(ctx2, runner.NewSingleThreadedRunner(aggressiveCommitter()))
+		_ = app2.RunWith(ctx2, runner.NewSingleThreadedRunner())
 	}()
 
 	waitForGroupMembers(t, broker, groupID, 2, 30*time.Second)
@@ -407,7 +407,7 @@ func TestE2E_ConsumerGroup_MultipleTopics(t *testing.T) {
 
 	errCh := make(chan error, 1)
 	go func() {
-		errCh <- app.RunWith(ctx, runner.NewSingleThreadedRunner(aggressiveCommitter()))
+		errCh <- app.RunWith(ctx, runner.NewSingleThreadedRunner())
 	}()
 
 	time.Sleep(3 * time.Second)
