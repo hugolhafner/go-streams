@@ -13,7 +13,7 @@ import (
 	"github.com/hugolhafner/go-streams/topology"
 )
 
-const Version = "v0.1.0" // x-release-please-version
+const Version = "v0.2.0" // x-release-please-version
 
 var (
 	ErrAlreadyRunning = errors.New("application is already running")
