@@ -21,7 +21,7 @@ import (
 
 // {"id": "order1", "amount": 100.0, "user_id": "user1"}
 func filterInvalidOrders(ctx context.Context, k []byte, v Order) (bool, error) {
-	keep := v.ID != "" && v.Amount > 0
+	keep := v.ID != "" && v.Amount >= 0
 	if !keep {
 		zap.L().Warn("Invalid order", zap.String("key", string(k)), zap.Any("value", v))
 	} else {
