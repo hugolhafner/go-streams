@@ -33,7 +33,7 @@ func NewSingleThreadedRunner(
 ) Factory {
 	config := defaultSingleThreadedConfig()
 	for _, opt := range opts {
-		opt(&config)
+		opt.applySingleThreaded(&config)
 	}
 
 	return func(
@@ -51,16 +51,6 @@ func NewSingleThreadedRunner(
 				With("runner", "single-threaded"),
 		}, nil
 	}
-}
-
-func (r *SingleThreaded) sourceTopics() []string {
-	sourceNodes := r.topology.SourceNodes()
-	topics := make([]string, 0, len(sourceNodes))
-	for _, node := range sourceNodes {
-		topics = append(topics, node.Topic())
-	}
-
-	return topics
 }
 
 func (r *SingleThreaded) shutdown() {
@@ -255,7 +245,7 @@ func (r *SingleThreaded) OnRevoked(partitions []kafka.TopicPartition) {
 }
 
 func (r *SingleThreaded) Run(ctx context.Context) error {
-	topics := r.sourceTopics()
+	topics := r.topology.SourceTopics()
 	if err := r.consumer.Subscribe(topics, r); err != nil {
 		return fmt.Errorf("failed to subscribe to topics: %w", err)
 	}
