@@ -157,6 +157,16 @@ func (t *Topology) SourceNodes() []*sourceNode {
 	return sourceNodes
 }
 
+func (t *Topology) SourceTopics() []string {
+	sourceNodes := t.SourceNodes()
+	topics := make([]string, 0, len(sourceNodes))
+	for _, node := range sourceNodes {
+		topics = append(topics, node.Topic())
+	}
+
+	return topics
+}
+
 func (t *Topology) Sinks() []string {
 	return t.sinks
 }
