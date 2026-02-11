@@ -21,10 +21,9 @@ type SingleThreaded struct {
 	producer    kafka.Producer
 	taskManager task.Manager
 	topology    *topology.Topology
-	config      SingleThreadedConfig
+	config SingleThreadedConfig
 
-	errorHandler errorhandler.Handler
-	logger       logger.Logger
+	logger logger.Logger
 
 	// errChan is used to signal fatal errors from goroutines to the main Run loop
 	errChan chan error
@@ -42,13 +41,12 @@ func NewSingleThreadedRunner(
 		t *topology.Topology, f task.Factory, consumer kafka.Consumer, producer kafka.Producer,
 	) (Runner, error) {
 		return &SingleThreaded{
-			consumer:     consumer,
-			producer:     producer,
-			taskManager:  task.NewManager(f, producer, config.Logger),
-			topology:     t,
-			config:       config,
-			errorHandler: config.ErrorHandler,
-			errChan:      make(chan error, 1),
+			consumer:    consumer,
+			producer:    producer,
+			taskManager: task.NewManager(f, producer, config.Logger),
+			topology:    t,
+			config:      config,
+			errChan:     make(chan error, 1),
 			logger: config.Logger.
 				With("component", "runner").
 				With("runner", "single-threaded"),
@@ -131,7 +129,7 @@ func (r *SingleThreaded) processRecord(ctx context.Context, record kafka.Consume
 		}
 		ec = ec.WithError(err)
 
-		action := r.errorHandler.Handle(ctx, ec)
+		action := r.config.ErrorHandler.Handle(ctx, ec)
 		switch action.Type() {
 		case errorhandler.ActionTypeFail:
 			return err

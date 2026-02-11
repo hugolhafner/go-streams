@@ -28,8 +28,6 @@ type partitionWorker struct {
 	errCh        chan error
 	drainTimeout time.Duration
 
-	wg sync.WaitGroup
-
 	mu      sync.RWMutex
 	stopped bool
 }
@@ -123,7 +121,6 @@ func (w *partitionWorker) drain(ctx context.Context) {
 				return
 			}
 		default:
-			w.wg.Wait()
 			return
 		}
 	}
@@ -131,9 +128,6 @@ func (w *partitionWorker) drain(ctx context.Context) {
 
 // processRecord handles a single record with error handling and marking
 func (w *partitionWorker) processRecord(ctx context.Context, rec kafka.ConsumerRecord) error {
-	w.wg.Add(1)
-	defer w.wg.Done()
-
 	ec := errorhandler.NewErrorContext(rec, nil)
 	var lastErr error
 

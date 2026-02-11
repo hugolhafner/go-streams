@@ -36,9 +36,14 @@ func defaultSingleThreadedConfig() SingleThreadedConfig {
 
 type PartitionedConfig struct {
 	BaseConfig
-	ChannelBufferSize     int
+	ChannelBufferSize int
+	// WorkerShutdownTimeout is the maximum time a single worker will spend
+	// draining its records after context cancellation
 	WorkerShutdownTimeout time.Duration
-	DrainTimeout          time.Duration
+	// DrainTimeout is the maximum time shutdown() will wait for ALL workers
+	// to finish draining. Should be >= WorkerShutdownTimeout to avoid
+	// returning from Run() while workers are still draining
+	DrainTimeout time.Duration
 }
 
 func defaultPartitionedConfig() PartitionedConfig {

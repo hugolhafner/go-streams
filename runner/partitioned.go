@@ -34,8 +34,7 @@ type PartitionedRunner struct {
 
 	errCh chan error
 
-	runCtx    context.Context
-	runCancel context.CancelFunc
+	runCtx context.Context
 
 	logger logger.Logger
 }
@@ -73,15 +72,17 @@ func NewPartitionedRunner(opts ...PartitionedOption) Factory {
 // Run starts the partitioned runner and blocks until the context is cancelled
 // or a fatal error occurs.
 func (r *PartitionedRunner) Run(ctx context.Context) error {
-	r.runCtx, r.runCancel = context.WithCancel(ctx)
-	defer r.runCancel()
-
 	topics := r.topology.SourceTopics()
 	if err := r.consumer.Subscribe(topics, r); err != nil {
 		return fmt.Errorf("failed to subscribe to topics: %w", err)
 	}
 
+	ctx, cancel := context.WithCancel(ctx)
+	r.runCtx = ctx
+
+	// defer is LIFO so cancel first then shutdown so workers can start exiting with ctx.Done() gracefully
 	defer r.shutdown()
+	defer cancel()
 
 	r.logger.Info("Partitioned runner started", "topics", topics)
 
@@ -92,15 +93,15 @@ func (r *PartitionedRunner) Run(ctx context.Context) error {
 			r.logger.Error("Fatal error received", "error", err)
 			return err
 
-		case <-r.runCtx.Done():
+		case <-ctx.Done():
 			r.logger.Info("Context cancelled, shutting down")
 			return nil
 
 		default:
-			if err := r.doPoll(); err != nil {
+			if err := r.doPoll(ctx); err != nil {
 				r.logger.Warn("Poll error", "error", err)
 				select {
-				case <-r.runCtx.Done():
+				case <-ctx.Done():
 					return nil
 				case <-time.After(r.config.PollErrorBackoff.Next(errAttempts)):
 				}
@@ -112,11 +113,11 @@ func (r *PartitionedRunner) Run(ctx context.Context) error {
 	}
 }
 
-func (r *PartitionedRunner) doPoll() error {
+func (r *PartitionedRunner) doPoll(ctx context.Context) error {
 	// process pending before new Poll
 	r.dispatchPending()
 
-	records, err := r.consumer.Poll(r.runCtx)
+	records, err := r.consumer.Poll(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to poll: %w", err)
 	}
@@ -329,14 +330,11 @@ func (r *PartitionedRunner) OnRevoked(partitions []kafka.TopicPartition) {
 func (r *PartitionedRunner) shutdown() {
 	r.logger.Info("Shutting down partitioned runner")
 
-	// Cancel runCtx so workers take the ctx.Done() drain path
-	r.runCancel()
-
 	r.pendingMu.Lock()
 	r.pending = make(map[kafka.TopicPartition][]kafka.ConsumerRecord)
 	r.paused = make(map[kafka.TopicPartition]struct{})
 	r.pendingMu.Unlock()
-	
+
 	r.mu.RLock()
 	allWorkers := make([]*partitionWorker, 0, len(r.workers))
 	for _, worker := range r.workers {
@@ -364,10 +362,6 @@ func (r *PartitionedRunner) shutdown() {
 		r.logger.Debug("All workers stopped")
 	case <-time.After(r.config.DrainTimeout):
 		r.logger.Warn("Timeout waiting for workers to stop during shutdown")
-	}
-
-	for _, worker := range allWorkers {
-		worker.Stop()
 	}
 
 	commitCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)

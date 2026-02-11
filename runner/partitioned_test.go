@@ -92,10 +92,13 @@ func TestPartitionedRunner_BasicProcessing(t *testing.T) {
 		errCh <- r.Run(ctx)
 	}()
 
-	// Wait a bit for processing
-	time.Sleep(500 * time.Millisecond)
+	// Wait for all records to be produced
+	require.Eventually(
+		t, func() bool {
+			return len(client.ProducedRecords()) == 3
+		}, 3*time.Second, 50*time.Millisecond, "all records should be produced",
+	)
 
-	// Cancel and wait for shutdown
 	cancel()
 
 	select {
@@ -105,8 +108,6 @@ func TestPartitionedRunner_BasicProcessing(t *testing.T) {
 		t.Fatal("timeout waiting for runner to stop")
 	}
 
-	// Verify all records were produced
-	client.AssertProducedCount(t, 3)
 	client.AssertProducedString(t, "output", "k1", "v1")
 	client.AssertProducedString(t, "output", "k2", "v2")
 	client.AssertProducedString(t, "output", "k3", "v3")
@@ -142,8 +143,12 @@ func TestPartitionedRunner_MultiplePartitions(t *testing.T) {
 		errCh <- r.Run(ctx)
 	}()
 
-	// Wait for processing
-	time.Sleep(500 * time.Millisecond)
+	require.Eventually(
+		t, func() bool {
+			return len(client.ProducedRecords()) == 5
+		}, 3*time.Second, 50*time.Millisecond, "all 5 records should be produced",
+	)
+
 	cancel()
 
 	select {
@@ -152,9 +157,6 @@ func TestPartitionedRunner_MultiplePartitions(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("timeout waiting for runner to stop")
 	}
-
-	// Verify all 5 records were produced
-	client.AssertProducedCount(t, 5)
 }
 
 func TestPartitionedRunner_ParallelProcessing(t *testing.T) {
@@ -221,8 +223,14 @@ func TestPartitionedRunner_ParallelProcessing(t *testing.T) {
 		errCh <- r.Run(ctx)
 	}()
 
-	// Wait for processing
-	time.Sleep(300 * time.Millisecond)
+	require.Eventually(
+		t, func() bool {
+			return len(client.ProducedRecords()) == 5
+		}, 3*time.Second, 50*time.Millisecond, "all 5 records should be produced",
+	)
+
+	elapsed := time.Since(start)
+
 	cancel()
 
 	select {
@@ -232,16 +240,10 @@ func TestPartitionedRunner_ParallelProcessing(t *testing.T) {
 		t.Fatal("timeout waiting for runner to stop")
 	}
 
-	elapsed := time.Since(start)
-
 	// If processing was sequential, it would take 5 * 50ms = 250ms minimum
 	// With parallelism, it should be closer to 50-100ms + overhead
-	// We're generous here because of test environment variability
 	t.Logf("Elapsed time: %v", elapsed)
 	t.Logf("Processing order: %v", processedOrder)
-
-	// Verify all records were processed
-	client.AssertProducedCount(t, 5)
 }
 
 func TestPartitionedRunner_OrderingWithinPartition(t *testing.T) {
@@ -304,7 +306,14 @@ func TestPartitionedRunner_OrderingWithinPartition(t *testing.T) {
 		errCh <- r.Run(ctx)
 	}()
 
-	time.Sleep(500 * time.Millisecond)
+	require.Eventually(
+		t, func() bool {
+			mu.Lock()
+			defer mu.Unlock()
+			return len(processedKeys) == 5
+		}, 3*time.Second, 50*time.Millisecond, "all records should be processed",
+	)
+
 	cancel()
 
 	select {
@@ -378,7 +387,13 @@ func TestPartitionedRunner_ErrorHandling(t *testing.T) {
 		errCh <- r.Run(ctx)
 	}()
 
-	time.Sleep(500 * time.Millisecond)
+	// Wait for all 3 records to be attempted (2 good + 1 error-skipped)
+	require.Eventually(
+		t, func() bool {
+			return len(client.ProducedRecords()) == 2 && errorCount.Load() == 1
+		}, 3*time.Second, 50*time.Millisecond, "all records should be processed",
+	)
+
 	cancel()
 
 	select {
@@ -388,13 +403,8 @@ func TestPartitionedRunner_ErrorHandling(t *testing.T) {
 		t.Fatal("timeout waiting for runner to stop")
 	}
 
-	// Verify good records were processed, failed record was skipped
-	client.AssertProducedCount(t, 2)
 	client.AssertProducedString(t, "output", "good1", "v1")
 	client.AssertProducedString(t, "output", "good2", "v3")
-
-	// Verify the error was encountered
-	require.Equal(t, int32(1), errorCount.Load())
 }
 
 func TestPartitionedRunner_RebalanceAssign(t *testing.T) {
@@ -557,8 +567,12 @@ func TestPartitionedRunner_GracefulShutdown(t *testing.T) {
 		errCh <- r.Run(ctx)
 	}()
 
-	// Wait for some processing to start
-	time.Sleep(150 * time.Millisecond)
+	// Wait for at least one record to be processed before cancelling
+	require.Eventually(
+		t, func() bool {
+			return processedCount.Load() >= 1
+		}, 3*time.Second, 50*time.Millisecond, "at least one record should be processed",
+	)
 
 	// Cancel while processing
 	cancel()
@@ -570,7 +584,6 @@ func TestPartitionedRunner_GracefulShutdown(t *testing.T) {
 		t.Fatal("timeout waiting for runner to stop")
 	}
 
-	// Verify that in-flight records were processed during drain
 	finalCount := processedCount.Load()
 	t.Logf("Processed %d records during graceful shutdown", finalCount)
 	require.GreaterOrEqual(t, finalCount, int32(1), "at least some records should have been processed")
