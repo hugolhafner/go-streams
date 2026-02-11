@@ -2,6 +2,7 @@ package runner
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -89,7 +90,11 @@ func (w *partitionWorker) run(ctx context.Context) {
 				w.logger.Debug("Record channel closed")
 				return
 			}
-			w.processRecord(ctx, rec)
+
+			if err := w.processRecord(ctx, rec); err != nil {
+				w.logger.Error("Error processing record", "error", err, "offset", rec.Offset)
+				emitError(w.errCh, w.logger, fmt.Errorf("worker %v: fatal processing error: %w", w.partition, err))
+			}
 		}
 	}
 }
@@ -102,7 +107,14 @@ func (w *partitionWorker) drain() {
 			if !ok {
 				return
 			}
-			w.processRecord(context.Background(), rec)
+			if err := w.processRecord(context.Background(), rec); err != nil {
+				w.logger.Error("Error processing record during drain, exiting...", "error", err, "offset", rec.Offset)
+				emitError(
+					w.errCh, w.logger,
+					fmt.Errorf("worker %v: fatal processing error during drain: %w", w.partition, err),
+				)
+				return
+			}
 		default:
 			w.wg.Wait()
 			return
@@ -111,7 +123,7 @@ func (w *partitionWorker) drain() {
 }
 
 // processRecord handles a single record with error handling and marking
-func (w *partitionWorker) processRecord(ctx context.Context, rec kafka.ConsumerRecord) {
+func (w *partitionWorker) processRecord(ctx context.Context, rec kafka.ConsumerRecord) error {
 	w.wg.Add(1)
 	defer w.wg.Done()
 
@@ -123,7 +135,7 @@ func (w *partitionWorker) processRecord(ctx context.Context, rec kafka.ConsumerR
 		if err == nil {
 			w.consumer.MarkRecords(rec)
 			w.logger.Debug("Record processed successfully", "offset", rec.Offset)
-			return
+			return nil
 		}
 
 		if pErr, ok := task.AsProcessError(err); ok {
@@ -140,8 +152,7 @@ func (w *partitionWorker) processRecord(ctx context.Context, rec kafka.ConsumerR
 				"error", err,
 				"offset", rec.Offset,
 			)
-			emitError(w.errCh, w.logger, fmt.Errorf("worker %v: fatal processing error: %w", w.partition, err))
-			return
+			return err
 
 		case errorhandler.ActionTypeRetry:
 			ec = ec.IncrementAttempt()
@@ -151,22 +162,21 @@ func (w *partitionWorker) processRecord(ctx context.Context, rec kafka.ConsumerR
 		case errorhandler.ActionTypeSendToDLQ:
 			a, ok := action.(errorhandler.ActionSendToDLQ)
 			if !ok {
-				w.logger.Error("Invalid action type, expected ActionSendToDLQ", "action", action.Type().String())
-				return
+				return errors.New("invalid action type, expected ActionSendToDLQ")
 			}
 
 			sendToDLQ(ctx, w.producer, rec, ec, a.Topic(), w.logger)
 			w.consumer.MarkRecords(rec)
-			return
+			return nil
 
 		case errorhandler.ActionTypeContinue:
 			w.consumer.MarkRecords(rec)
 			w.logger.Debug("Skipping failed record", "offset", rec.Offset)
-			return
+			return nil
 
 		default:
 			w.logger.Error("Unknown error handler action, failing", "action", action.Type().String(), "error", lastErr)
-			return
+			return lastErr
 		}
 	}
 }

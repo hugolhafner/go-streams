@@ -67,7 +67,7 @@ func WithMaxAttempts(maxAttempts int, b backoff.Backoff, fallback Handler) Handl
 }
 
 // WithDLQ returns SendToDLQ action when inner would Continue
-// Useful for: WithMaxAttempts(3, backoff, WithDLQ(inner))
+// Useful for: WithMaxAttempts(3, backoff, WithDLQ("dlq-topic", inner))
 func WithDLQ(topic string, inner Handler) Handler {
 	return HandlerFunc(
 		func(ctx context.Context, ec ErrorContext) Action {
