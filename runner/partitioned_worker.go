@@ -12,12 +12,6 @@ import (
 	"github.com/hugolhafner/go-streams/task"
 )
 
-// recordWithAck wraps a consumer record with acknowledgment tracking
-type recordWithAck struct {
-	record kafka.ConsumerRecord
-	ackCh  chan error
-}
-
 // partitionWorker processes records for a single partition in its own goroutine
 type partitionWorker struct {
 	partition    kafka.TopicPartition
@@ -27,7 +21,7 @@ type partitionWorker struct {
 	errorHandler errorhandler.Handler
 	logger       logger.Logger
 
-	recordCh chan recordWithAck
+	recordCh chan kafka.ConsumerRecord
 	doneCh   chan struct{}
 	stopCh   chan struct{}
 
@@ -58,7 +52,7 @@ func newPartitionWorker(
 			"topic", partition.Topic,
 			"partition", partition.Partition,
 		),
-		recordCh: make(chan recordWithAck, bufferSize),
+		recordCh: make(chan kafka.ConsumerRecord, bufferSize),
 		doneCh:   make(chan struct{}),
 		stopCh:   make(chan struct{}),
 	}
@@ -114,24 +108,18 @@ func (w *partitionWorker) drain() {
 }
 
 // processRecord handles a single record with error handling and marking
-func (w *partitionWorker) processRecord(ctx context.Context, rec recordWithAck) {
+func (w *partitionWorker) processRecord(ctx context.Context, rec kafka.ConsumerRecord) {
 	w.wg.Add(1)
 	defer w.wg.Done()
 
-	ec := errorhandler.NewErrorContext(rec.record, nil)
+	ec := errorhandler.NewErrorContext(rec, nil)
 	var lastErr error
 
-	defer func() {
-		if rec.ackCh != nil {
-			close(rec.ackCh)
-		}
-	}()
-
 	for {
-		err := w.task.Process(ctx, rec.record)
+		err := w.task.Process(ctx, rec)
 		if err == nil {
-			w.consumer.MarkRecords(rec.record)
-			w.logger.Debug("Record processed successfully", "offset", rec.record.Offset)
+			w.consumer.MarkRecords(rec)
+			w.logger.Debug("Record processed successfully", "offset", rec.Offset)
 			return
 		}
 
@@ -147,34 +135,28 @@ func (w *partitionWorker) processRecord(ctx context.Context, rec recordWithAck) 
 			w.logger.Error(
 				"Record processing failed, stopping worker",
 				"error", err,
-				"offset", rec.record.Offset,
+				"offset", rec.Offset,
 			)
-			if rec.ackCh != nil {
-				rec.ackCh <- err
-			}
 			return
 
 		case errorhandler.ActionRetry:
 			ec = ec.IncrementAttempt()
-			w.logger.Debug("Retrying record", "attempt", ec.Attempt, "offset", rec.record.Offset)
+			w.logger.Debug("Retrying record", "attempt", ec.Attempt, "offset", rec.Offset)
 			continue
 
 		case errorhandler.ActionSendToDLQ:
 			// TODO: Make DLQ topic configurable
-			sendToDLQ(ctx, w.producer, rec.record, ec, "dlq", w.logger)
-			w.consumer.MarkRecords(rec.record)
+			sendToDLQ(ctx, w.producer, rec, ec, "dlq", w.logger)
+			w.consumer.MarkRecords(rec)
 			return
 
 		case errorhandler.ActionContinue:
-			w.consumer.MarkRecords(rec.record)
-			w.logger.Debug("Skipping failed record", "offset", rec.record.Offset)
+			w.consumer.MarkRecords(rec)
+			w.logger.Debug("Skipping failed record", "offset", rec.Offset)
 			return
 
 		default:
 			w.logger.Error("Unknown error handler action, failing", "action", action.String(), "error", lastErr)
-			if rec.ackCh != nil {
-				rec.ackCh <- lastErr
-			}
 			return
 		}
 	}
@@ -189,17 +171,12 @@ func (w *partitionWorker) Submit(ctx context.Context, record kafka.ConsumerRecor
 	}
 	w.mu.RUnlock()
 
-	rec := recordWithAck{
-		record: record,
-		ackCh:  nil,
-	}
-
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
 	case <-w.stopCh:
 		return fmt.Errorf("worker for partition %v is stopping", w.partition)
-	case w.recordCh <- rec:
+	case w.recordCh <- record:
 		return nil
 	}
 }
