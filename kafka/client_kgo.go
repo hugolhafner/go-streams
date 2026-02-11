@@ -190,6 +190,14 @@ func (k *KgoClient) Ping(ctx context.Context) error {
 	return k.client.Ping(ctx)
 }
 
+func (k *KgoClient) PausePartitions(partitions ...TopicPartition) {
+	k.client.PauseFetchPartitions(topicPartitionsToMap(partitions))
+}
+
+func (k *KgoClient) ResumePartitions(partitions ...TopicPartition) {
+	k.client.ResumeFetchPartitions(topicPartitionsToMap(partitions))
+}
+
 func (k *KgoClient) Close() {
 	k.client.CloseAllowingRebalance()
 }
@@ -244,6 +252,14 @@ func convertToKgoHeaders(headers []Header) []kgo.RecordHeader {
 		kgoHeaders[i] = kgo.RecordHeader{Key: h.Key, Value: h.Value}
 	}
 	return kgoHeaders
+}
+
+func topicPartitionsToMap(tps []TopicPartition) map[string][]int32 {
+	m := make(map[string][]int32)
+	for _, tp := range tps {
+		m[tp.Topic] = append(m[tp.Topic], tp.Partition)
+	}
+	return m
 }
 
 func mapToTopicPartitions(m map[string][]int32) []TopicPartition {

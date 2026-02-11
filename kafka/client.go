@@ -22,6 +22,8 @@ type Consumer interface {
 	Poll(ctx context.Context) ([]ConsumerRecord, error)
 	Commit(ctx context.Context) error
 	MarkRecords(records ...ConsumerRecord)
+	PausePartitions(partitions ...TopicPartition)
+	ResumePartitions(partitions ...TopicPartition)
 	Close()
 }
 

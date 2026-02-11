@@ -35,6 +35,8 @@ type Client struct {
 	rebalanceCb        kafka.RebalanceCallback
 	assignedPartitions []kafka.TopicPartition
 
+	pausedPartitions map[kafka.TopicPartition]struct{}
+
 	maxPollRecords int
 	pollDelay      time.Duration
 
@@ -55,6 +57,7 @@ func NewClient(opts ...Option) *Client {
 		committedOffsets: make(map[kafka.TopicPartition]kafka.Offset),
 		markedRecords:    make([]kafka.ConsumerRecord, 0),
 		markedOffsets:    make(map[kafka.TopicPartition]kafka.Offset),
+		pausedPartitions: make(map[kafka.TopicPartition]struct{}),
 		maxPollRecords:   10,
 		pollDelay:        0,
 	}
@@ -136,6 +139,10 @@ func (c *Client) Poll(ctx context.Context) ([]kafka.ConsumerRecord, error) {
 		progressMade := false
 
 		for _, tp := range c.assignedPartitions {
+			if _, paused := c.pausedPartitions[tp]; paused {
+				continue
+			}
+
 			queue, exists := c.recordQueues[tp]
 			if !exists {
 				continue
@@ -282,6 +289,36 @@ func (c *Client) Close() {
 	defer c.mu.Unlock()
 
 	c.closed = true
+}
+
+// PausePartitions pauses fetching for the specified partitions
+// skipped by Poll
+func (c *Client) PausePartitions(partitions ...kafka.TopicPartition) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	for _, tp := range partitions {
+		c.pausedPartitions[tp] = struct{}{}
+	}
+}
+
+// ResumePartitions resumes fetching for the specified partitions
+func (c *Client) ResumePartitions(partitions ...kafka.TopicPartition) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	for _, tp := range partitions {
+		delete(c.pausedPartitions, tp)
+	}
+}
+
+// IsPaused returns whether the given partition is currently paused
+func (c *Client) IsPaused(tp kafka.TopicPartition) bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	_, paused := c.pausedPartitions[tp]
+	return paused
 }
 
 // AddRecords adds records to be returned by Poll for a specific topic-partition.
@@ -529,6 +566,7 @@ func (c *Client) Reset() {
 	c.markedRecords = make([]kafka.ConsumerRecord, 0)
 	c.markedOffsets = make(map[kafka.TopicPartition]kafka.Offset)
 	c.queuePositions = make(map[kafka.TopicPartition]int)
+	c.pausedPartitions = make(map[kafka.TopicPartition]struct{})
 	c.closed = false
 }
 
@@ -543,6 +581,7 @@ func (c *Client) Clear() {
 	c.committedOffsets = make(map[kafka.TopicPartition]kafka.Offset)
 	c.markedRecords = make([]kafka.ConsumerRecord, 0)
 	c.markedOffsets = make(map[kafka.TopicPartition]kafka.Offset)
+	c.pausedPartitions = make(map[kafka.TopicPartition]struct{})
 	c.subscriptions = nil
 	c.assignedPartitions = nil
 	c.rebalanceCb = nil

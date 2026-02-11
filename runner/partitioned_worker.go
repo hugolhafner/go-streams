@@ -22,10 +22,11 @@ type partitionWorker struct {
 	errorHandler errorhandler.Handler
 	logger       logger.Logger
 
-	recordCh chan kafka.ConsumerRecord
-	doneCh   chan struct{}
-	stopCh   chan struct{}
-	errCh    chan error
+	recordCh     chan kafka.ConsumerRecord
+	doneCh       chan struct{}
+	stopCh       chan struct{}
+	errCh        chan error
+	drainTimeout time.Duration
 
 	wg sync.WaitGroup
 
@@ -41,6 +42,7 @@ func newPartitionWorker(
 	producer kafka.Producer,
 	errorHandler errorhandler.Handler,
 	bufferSize int,
+	drainTimeout time.Duration,
 	errCh chan error,
 	l logger.Logger,
 ) *partitionWorker {
@@ -55,10 +57,11 @@ func newPartitionWorker(
 			"topic", partition.Topic,
 			"partition", partition.Partition,
 		),
-		recordCh: make(chan kafka.ConsumerRecord, bufferSize),
-		doneCh:   make(chan struct{}),
-		stopCh:   make(chan struct{}),
-		errCh:    errCh,
+		recordCh:     make(chan kafka.ConsumerRecord, bufferSize),
+		doneCh:       make(chan struct{}),
+		stopCh:       make(chan struct{}),
+		errCh:        errCh,
+		drainTimeout: drainTimeout,
 	}
 }
 
@@ -77,12 +80,13 @@ func (w *partitionWorker) run(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			w.logger.Debug("Context cancelled, draining remaining records")
-			w.drain()
+			drainCtx, cancel := context.WithTimeout(context.Background(), w.drainTimeout)
+			w.drain(drainCtx)
+			cancel()
 			return
 
 		case <-w.stopCh:
-			w.logger.Debug("Stop signal received, draining remaining records")
-			w.drain()
+			w.logger.Debug("Stop signal received, returning without drain")
 			return
 
 		case rec, ok := <-w.recordCh:
@@ -100,14 +104,17 @@ func (w *partitionWorker) run(ctx context.Context) {
 }
 
 // drain processes any remaining records in the channel before stopping
-func (w *partitionWorker) drain() {
+func (w *partitionWorker) drain(ctx context.Context) {
 	for {
 		select {
+		case <-ctx.Done():
+			w.logger.Warn("Drain context cancelled, stopping drain")
+			return
 		case rec, ok := <-w.recordCh:
 			if !ok {
 				return
 			}
-			if err := w.processRecord(context.Background(), rec); err != nil {
+			if err := w.processRecord(ctx, rec); err != nil {
 				w.logger.Error("Error processing record during drain, exiting...", "error", err, "offset", rec.Offset)
 				emitError(
 					w.errCh, w.logger,
@@ -197,6 +204,23 @@ func (w *partitionWorker) Submit(ctx context.Context, record kafka.ConsumerRecor
 		return fmt.Errorf("worker for partition %v is stopping", w.partition)
 	case w.recordCh <- record:
 		return nil
+	}
+}
+
+// TrySubmit non blocking submit to processing queue, true if submitted, false if full or stopped
+func (w *partitionWorker) TrySubmit(record kafka.ConsumerRecord) bool {
+	w.mu.RLock()
+	if w.stopped {
+		w.mu.RUnlock()
+		return false
+	}
+	w.mu.RUnlock()
+
+	select {
+	case w.recordCh <- record:
+		return true
+	default:
+		return false
 	}
 }
 
