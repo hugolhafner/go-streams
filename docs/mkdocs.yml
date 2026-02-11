@@ -1,7 +1,14 @@
 site_name: 'go-streams-docs'
+docs_dir: .
 
 nav:
   - Home: index.md
+  - Getting Started: getting-started.md
+  - KStream DSL: kstream-dsl.md
+  - Serialization: serialization.md
+  - Error Handling: error-handling.md
+  - Runners: runners.md
+  - Custom Processors: custom-processors.md
 
 plugins:
   - techdocs-core

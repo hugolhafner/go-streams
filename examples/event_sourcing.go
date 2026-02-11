@@ -113,10 +113,11 @@ func EventSourcing() {
 	if err != nil {
 		panic(err)
 	}
+	defer client.Close()
 
 	app, err := streams.NewApplication(
 		client,
-		builder.Build(),
+		t,
 	)
 	if err != nil {
 		panic(err)

@@ -1,0 +1,135 @@
+# Error Handling
+
+go-streams uses a composable error handler system. When a processor returns an error, the runner passes it to the configured error handler, which decides what action to take.
+
+## Error Flow
+
+```
+Processor returns error
+    → Runner creates ErrorContext
+    → Handler.Handle(ctx, errorContext) returns Action
+    → Runner executes the Action
+```
+
+## Actions
+
+An error handler returns one of four actions:
+
+| Action | Behavior |
+|--------|----------|
+| `ActionContinue{}` | Skip the record and continue processing |
+| `ActionRetry{}` | Retry processing the same record |
+| `ActionFail{}` | Stop the runner with the error |
+| `ActionSendToDLQ{topic}` | Send the record to a dead letter queue topic, then continue |
+
+## ErrorContext
+
+The handler receives an `ErrorContext` with full details about the failure:
+
+```go
+type ErrorContext struct {
+    Record   kafka.ConsumerRecord  // The record that caused the error
+    Error    error                 // The error from the processor
+    Attempt  int                   // Current attempt number (1-indexed)
+    NodeName string                // Topology node where the error occurred
+}
+```
+
+## Built-in Handlers
+
+### LogAndContinue
+
+Logs the error and skips the record:
+
+```go
+errorhandler.LogAndContinue(myLogger)
+```
+
+### LogAndFail
+
+Logs the error and stops processing:
+
+```go
+errorhandler.LogAndFail(myLogger)
+```
+
+### WithMaxAttempts
+
+Retries processing up to N times with backoff. When the limit is reached, delegates to a fallback handler:
+
+```go
+errorhandler.WithMaxAttempts(3, backoff.NewFixed(time.Second), fallbackHandler)
+```
+
+The `backoff.Backoff` parameter controls delay between retries. `backoff.NewFixed(duration)` uses a constant delay.
+
+### WithDLQ
+
+Intercepts `Continue` actions from the inner handler and replaces them with `SendToDLQ`. Other actions pass through unchanged:
+
+```go
+errorhandler.WithDLQ("my-dlq-topic", innerHandler)
+```
+
+### ActionLogger
+
+Wraps a handler and logs the action it decides:
+
+```go
+errorhandler.ActionLogger(myLogger, logger.InfoLevel, innerHandler)
+```
+
+## Composing Handlers
+
+Handlers are designed to be composed. Here is the error handler from the `kgo_complete` example:
+
+```go
+handler := errorhandler.ActionLogger(
+    myLogger,
+    logger.InfoLevel,
+    errorhandler.WithMaxAttempts(
+        3, backoff.NewFixed(time.Second),
+        errorhandler.WithDLQ("dlq", errorhandler.LogAndContinue(myLogger)),
+    ),
+)
+```
+
+This creates the following pipeline:
+
+1. **ActionLogger** — logs every handler decision at `Info` level
+2. **WithMaxAttempts** — retries up to 3 times with 1-second backoff
+3. When retries are exhausted, **WithDLQ** — sends to the `"dlq"` topic
+4. **LogAndContinue** — logs the error (this would normally return `Continue`, but `WithDLQ` intercepts it and returns `SendToDLQ` instead)
+
+## Custom Handlers
+
+Implement the `Handler` interface:
+
+```go
+type Handler interface {
+    Handle(ctx context.Context, ec ErrorContext) Action
+}
+```
+
+Or use `HandlerFunc` for a quick inline handler:
+
+```go
+handler := errorhandler.HandlerFunc(func(ctx context.Context, ec ErrorContext) errorhandler.Action {
+    if errors.Is(ec.Error, ErrTransient) {
+        return errorhandler.ActionRetry{}
+    }
+    return errorhandler.ActionFail{}
+})
+```
+
+## Configuring the Handler
+
+Pass the handler when creating a runner:
+
+```go
+app.RunWith(ctx, runner.NewSingleThreadedRunner(
+    runner.WithErrorHandler(handler),
+))
+```
+
+The default error handler is `LogAndContinue` with a noop logger.
