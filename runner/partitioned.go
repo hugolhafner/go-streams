@@ -72,17 +72,16 @@ func NewPartitionedRunner(opts ...PartitionedOption) Factory {
 // Run starts the partitioned runner and blocks until the context is cancelled
 // or a fatal error occurs.
 func (r *PartitionedRunner) Run(ctx context.Context) error {
+	defer r.shutdown()
+
+	var cancel context.CancelFunc
+	r.runCtx, cancel = context.WithCancel(ctx)
+	defer cancel()
+
 	topics := r.topology.SourceTopics()
 	if err := r.consumer.Subscribe(topics, r); err != nil {
 		return fmt.Errorf("failed to subscribe to topics: %w", err)
 	}
-
-	ctx, cancel := context.WithCancel(ctx)
-	r.runCtx = ctx
-
-	// defer is LIFO so cancel first then shutdown so workers can start exiting with ctx.Done() gracefully
-	defer r.shutdown()
-	defer cancel()
 
 	r.logger.Info("Partitioned runner started", "topics", topics)
 
@@ -90,7 +89,7 @@ func (r *PartitionedRunner) Run(ctx context.Context) error {
 	for {
 		select {
 		case err := <-r.errCh:
-			r.logger.Error("Fatal error received", "error", err)
+			r.logger.Error("Fatal error received in Run()", "error", err)
 			return err
 
 		case <-ctx.Done():
@@ -260,6 +259,11 @@ func (r *PartitionedRunner) OnAssigned(partitions []kafka.TopicPartition) {
 		)
 
 		r.workers[tp] = worker
+
+		// make sure partition is resumed in case it was paused when revoked but then reassigned to this runner
+		// should be a no-op if the partition wasn't paused
+		r.consumer.ResumePartitions(tp)
+
 		worker.Start(r.runCtx)
 
 		r.logger.Debug("Started worker for partition", "partition", tp)

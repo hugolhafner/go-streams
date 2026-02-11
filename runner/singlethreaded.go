@@ -21,7 +21,7 @@ type SingleThreaded struct {
 	producer    kafka.Producer
 	taskManager task.Manager
 	topology    *topology.Topology
-	config SingleThreadedConfig
+	config      SingleThreadedConfig
 
 	logger logger.Logger
 
@@ -212,18 +212,28 @@ func (r *SingleThreaded) Run(ctx context.Context) error {
 
 	defer r.shutdown()
 
+	var errAttempts uint = 0
 	for {
 		select {
 		case err := <-r.errChan:
 			r.logger.Error("Fatal error received in Run()", "error", err)
 			return err
+
 		case <-ctx.Done():
-			r.logger.Debug("Context closed, shutting down Run()")
+			r.logger.Info("Context cancelled, shutting down")
 			return nil
+
 		default:
 			if err := r.doPoll(ctx); err != nil {
-				r.logger.Warn("Failed during record poll", "error", err)
-				return err
+				r.logger.Warn("Poll error", "error", err)
+				select {
+				case <-ctx.Done():
+					return nil
+				case <-time.After(r.config.PollErrorBackoff.Next(errAttempts)):
+				}
+				errAttempts++
+			} else {
+				errAttempts = 0
 			}
 		}
 	}

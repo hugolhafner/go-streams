@@ -96,6 +96,7 @@ func (w *partitionWorker) run(ctx context.Context) {
 			if err := w.processRecord(ctx, rec); err != nil {
 				w.logger.Error("Error processing record", "error", err, "offset", rec.Offset)
 				emitError(w.errCh, w.logger, fmt.Errorf("worker %v: fatal processing error: %w", w.partition, err))
+				return
 			}
 		}
 	}
@@ -211,6 +212,8 @@ func (w *partitionWorker) TrySubmit(record kafka.ConsumerRecord) bool {
 	w.mu.RUnlock()
 
 	select {
+	case <-w.stopCh:
+		return false
 	case w.recordCh <- record:
 		return true
 	default:
