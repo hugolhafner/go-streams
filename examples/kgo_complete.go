@@ -93,7 +93,7 @@ func KgoComplete() {
 					logger.InfoLevel,
 					errorhandler.WithMaxAttempts(
 						3, backoff.NewFixed(time.Second),
-						errorhandler.WithDLQ(errorhandler.LogAndContinue(klogger)),
+						errorhandler.WithDLQ("dlq", errorhandler.LogAndContinue(klogger)),
 					),
 				),
 			),

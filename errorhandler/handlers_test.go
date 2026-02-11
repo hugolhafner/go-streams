@@ -36,7 +36,7 @@ func TestLogAndContinue(t *testing.T) {
 				h := errorhandler.LogAndContinue(l)
 				action := h.Handle(context.Background(), ec.WithError(tt.err))
 
-				require.Equal(t, action, errorhandler.ActionContinue)
+				require.Equal(t, errorhandler.ActionContinue{}, action)
 				l.AssertCalledWithLevelAndMessage(t, logger.ErrorLevel, "error processing record, skipping")
 			},
 		)
@@ -63,7 +63,7 @@ func TestLogAndFail(t *testing.T) {
 				h := errorhandler.LogAndFail(l)
 				action := h.Handle(context.Background(), ec.WithError(tt.err))
 
-				require.Equal(t, action, errorhandler.ActionFail)
+				require.Equal(t, errorhandler.ActionFail{}, action)
 				l.AssertCalledWithLevelAndMessage(t, logger.ErrorLevel, "error processing record, failing")
 			},
 		)
@@ -82,7 +82,7 @@ func TestWithMaxAttempts(t *testing.T) {
 			fallback := errorhandler.HandlerFunc(
 				func(ctx context.Context, ec errorhandler.ErrorContext) errorhandler.Action {
 					fallbackCalled = true
-					return errorhandler.ActionFail
+					return errorhandler.ActionFail{}
 				},
 			)
 
@@ -95,12 +95,12 @@ func TestWithMaxAttempts(t *testing.T) {
 			for i := 1; i < maxAttempts; i++ {
 				action := h.Handle(context.Background(), ec.WithAttempt(i))
 				require.False(t, fallbackCalled, "fallback should not be called yet on attempt %d", i)
-				require.Equal(t, errorhandler.ActionRetry, action)
+				require.Equal(t, errorhandler.ActionRetry{}, action)
 			}
 
 			action := h.Handle(context.Background(), ec.WithAttempt(maxAttempts+1))
 			require.True(t, fallbackCalled, "fallback should have been called")
-			require.Equal(t, errorhandler.ActionFail, action)
+			require.Equal(t, errorhandler.ActionFail{}, action)
 		},
 	)
 
@@ -115,7 +115,7 @@ func TestWithMaxAttempts(t *testing.T) {
 			fallback := errorhandler.HandlerFunc(
 				func(ctx context.Context, ec errorhandler.ErrorContext) errorhandler.Action {
 					fallbackCalled = true
-					return errorhandler.ActionFail
+					return errorhandler.ActionFail{}
 				},
 			)
 
@@ -130,7 +130,7 @@ func TestWithMaxAttempts(t *testing.T) {
 			elapsed := time.Since(start)
 
 			require.False(t, fallbackCalled, "fallback should not be called yet")
-			require.Equal(t, errorhandler.ActionRetry, action)
+			require.Equal(t, errorhandler.ActionRetry{}, action)
 			require.GreaterOrEqual(t, elapsed, 100*time.Millisecond, "should have waited on retry attempt")
 		},
 	)
@@ -146,7 +146,7 @@ func TestWithMaxAttempts(t *testing.T) {
 			fallback := errorhandler.HandlerFunc(
 				func(ctx context.Context, ec errorhandler.ErrorContext) errorhandler.Action {
 					fallbackCalled = true
-					return errorhandler.ActionFail
+					return errorhandler.ActionFail{}
 				},
 			)
 
@@ -162,8 +162,8 @@ func TestWithMaxAttempts(t *testing.T) {
 			action := h.Handle(ctx, ec)
 			require.False(t, fallbackCalled, "fallback should not be called yet")
 			require.Equal(
-				t, errorhandler.ActionFail, action, "expected ActionFail on context cancellation, got: %v",
-				action.String(),
+				t, errorhandler.ActionFail{}, action, "expected ActionTypeFail on context cancellation, got: %v",
+				action.Type().String(),
 			)
 		},
 	)

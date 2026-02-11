@@ -81,7 +81,11 @@ func (t *TopologyTask) processSafe(ctx context.Context, rec kafka.ConsumerRecord
 }
 
 func (t *TopologyTask) Process(ctx context.Context, rec kafka.ConsumerRecord) error {
-	if t.closed {
+	t.mu.RLock()
+	closed := t.closed
+	t.mu.RUnlock()
+
+	if closed {
 		return ErrTaskClosed
 	}
 

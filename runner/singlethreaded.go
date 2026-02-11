@@ -2,6 +2,7 @@ package runner
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -20,9 +21,9 @@ type SingleThreaded struct {
 	producer    kafka.Producer
 	taskManager task.Manager
 	topology    *topology.Topology
+	config      SingleThreadedConfig
 
-	errorHandler errorhandler.Handler
-	logger       logger.Logger
+	logger logger.Logger
 
 	// errChan is used to signal fatal errors from goroutines to the main Run loop
 	errChan chan error
@@ -33,34 +34,24 @@ func NewSingleThreadedRunner(
 ) Factory {
 	config := defaultSingleThreadedConfig()
 	for _, opt := range opts {
-		opt(&config)
+		opt.applySingleThreaded(&config)
 	}
 
 	return func(
 		t *topology.Topology, f task.Factory, consumer kafka.Consumer, producer kafka.Producer,
 	) (Runner, error) {
 		return &SingleThreaded{
-			consumer:     consumer,
-			producer:     producer,
-			taskManager:  task.NewManager(f, producer, config.Logger),
-			topology:     t,
-			errorHandler: config.ErrorHandler,
-			errChan:      make(chan error, 1),
+			consumer:    consumer,
+			producer:    producer,
+			taskManager: task.NewManager(f, producer, config.Logger),
+			topology:    t,
+			config:      config,
+			errChan:     make(chan error, 1),
 			logger: config.Logger.
 				With("component", "runner").
 				With("runner", "single-threaded"),
 		}, nil
 	}
-}
-
-func (r *SingleThreaded) sourceTopics() []string {
-	sourceNodes := r.topology.SourceNodes()
-	topics := make([]string, 0, len(sourceNodes))
-	for _, node := range sourceNodes {
-		topics = append(topics, node.Topic())
-	}
-
-	return topics
 }
 
 func (r *SingleThreaded) shutdown() {
@@ -80,6 +71,8 @@ func (r *SingleThreaded) shutdown() {
 	r.logger.Info("Shutdown complete")
 }
 
+// doPoll polls for records and processes them sequentially
+// returns any fatal errors that should stop the runner
 func (r *SingleThreaded) doPoll(ctx context.Context) error {
 	r.logger.Debug("Polling for records")
 
@@ -104,7 +97,6 @@ func (r *SingleThreaded) doPoll(ctx context.Context) error {
 			"offset", record.Offset,
 		)
 
-		// only errors that should stop the runner are returned here
 		if err := r.processRecord(ctx, record); err != nil {
 			return fmt.Errorf("fatal error processing record: %w", err)
 		}
@@ -113,53 +105,6 @@ func (r *SingleThreaded) doPoll(ctx context.Context) error {
 	}
 
 	return nil
-}
-
-func (r *SingleThreaded) sendToDLQ(
-	ctx context.Context, record kafka.ConsumerRecord, ec errorhandler.ErrorContext,
-) {
-	key := make([]byte, len(record.Key))
-	copy(key, record.Key)
-	value := make([]byte, len(record.Value))
-	copy(value, record.Value)
-
-	headers := make(map[string][]byte)
-	for k, v := range record.Headers {
-		headers[k] = make([]byte, len(v))
-		copy(headers[k], v)
-	}
-
-	headers["x-original-topic"] = []byte(record.Topic)
-	headers["x-original-partition"] = []byte(fmt.Sprintf("%d", record.Partition))
-	headers["x-original-offset"] = []byte(fmt.Sprintf("%d", record.Offset))
-
-	headers["x-error-message"] = []byte(ec.Error.Error())
-	headers["x-error-attempt"] = []byte(fmt.Sprintf("%d", ec.Attempt))
-	headers["x-error-timestamp"] = []byte(time.Now().Format(time.RFC3339))
-	if ec.NodeName != "" {
-		headers["x-error-node"] = []byte(ec.NodeName)
-	}
-
-	err := r.producer.Send(ctx, "dlq", key, value, headers)
-
-	if err == nil {
-		r.logger.Debug(
-			"Sent record to DLQ",
-			"key", string(key),
-			"original_topic", record.Topic,
-			"original_partition", record.Partition,
-			"original_offset", record.Offset,
-		)
-	} else {
-		r.logger.Error(
-			"Failed to send record to DLQ, dropping record",
-			"error", err,
-			"key", string(key),
-			"original_topic", record.Topic,
-			"original_partition", record.Partition,
-			"original_offset", record.Offset,
-		)
-	}
 }
 
 func (r *SingleThreaded) processRecord(ctx context.Context, record kafka.ConsumerRecord) error {
@@ -185,17 +130,34 @@ func (r *SingleThreaded) processRecord(ctx context.Context, record kafka.Consume
 		}
 		ec = ec.WithError(err)
 
-		action := r.errorHandler.Handle(ctx, ec)
-		switch action {
-		case errorhandler.ActionFail:
+		action := r.config.ErrorHandler.Handle(ctx, ec)
+		switch action.Type() {
+		case errorhandler.ActionTypeFail:
 			return err
-		case errorhandler.ActionRetry:
+		case errorhandler.ActionTypeRetry:
 			ec = ec.IncrementAttempt()
 			continue
-		case errorhandler.ActionSendToDLQ:
-			r.sendToDLQ(ctx, record, ec)
+		case errorhandler.ActionTypeSendToDLQ:
+			a, ok := action.(errorhandler.ActionSendToDLQ)
+			if !ok {
+				r.logger.Error("Invalid action type, expected ActionSendToDLQ", "action", action.Type().String())
+				return errors.New("invalid action type, expected ActionSendToDLQ")
+			}
+
+			if err := sendToDLQ(ctx, r.producer, record, ec, a.Topic()); err != nil {
+				r.logger.Error(
+					"Failed to send record to DLQ.",
+					"error", err,
+					"key", string(record.Key),
+					"original_topic", record.Topic,
+					"original_partition", record.Partition,
+					"original_offset", record.Offset,
+				)
+				return err
+			}
+
 			return nil
-		case errorhandler.ActionContinue:
+		case errorhandler.ActionTypeContinue:
 			return nil
 		default:
 			r.logger.Error(
@@ -255,25 +217,35 @@ func (r *SingleThreaded) OnRevoked(partitions []kafka.TopicPartition) {
 }
 
 func (r *SingleThreaded) Run(ctx context.Context) error {
-	topics := r.sourceTopics()
+	topics := r.topology.SourceTopics()
 	if err := r.consumer.Subscribe(topics, r); err != nil {
 		return fmt.Errorf("failed to subscribe to topics: %w", err)
 	}
 
 	defer r.shutdown()
 
+	var errAttempts uint = 0
 	for {
 		select {
 		case err := <-r.errChan:
 			r.logger.Error("Fatal error received in Run()", "error", err)
 			return err
+
 		case <-ctx.Done():
-			r.logger.Debug("Context closed, shutting down Run()")
+			r.logger.Info("Context cancelled, shutting down")
 			return nil
+
 		default:
 			if err := r.doPoll(ctx); err != nil {
-				r.logger.Warn("Failed during record poll", "error", err)
-				return err
+				r.logger.Warn("Poll error", "error", err)
+				select {
+				case <-ctx.Done():
+					return nil
+				case <-time.After(r.config.PollErrorBackoff.Next(errAttempts)):
+				}
+				errAttempts++
+			} else {
+				errAttempts = 0
 			}
 		}
 	}

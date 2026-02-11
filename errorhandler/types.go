@@ -4,28 +4,67 @@ import (
 	"context"
 )
 
-type Action int
+type ActionType int
 
 const (
-	ActionContinue  Action = iota // Skip record, continue and commit
-	ActionRetry                   // Retry this record
-	ActionFail                    // Stop processing and don't commit
-	ActionSendToDLQ               // Send to DLQ, then continue
+	ActionTypeContinue  ActionType = iota // Skip record, continue and commit
+	ActionTypeRetry                       // Retry this record
+	ActionTypeFail                        // Stop processing and don't commit
+	ActionTypeSendToDLQ                   // Send to DLQ, then continue
 )
 
-func (a Action) String() string {
+func (a ActionType) String() string {
 	switch a {
-	case ActionContinue:
+	case ActionTypeContinue:
 		return "Continue"
-	case ActionRetry:
+	case ActionTypeRetry:
 		return "Retry"
-	case ActionFail:
+	case ActionTypeFail:
 		return "Fail"
-	case ActionSendToDLQ:
+	case ActionTypeSendToDLQ:
 		return "SendToDLQ"
 	default:
 		return "Unknown"
 	}
+}
+
+var _ Action = ActionContinue{}
+var _ Action = ActionRetry{}
+var _ Action = ActionFail{}
+var _ Action = ActionSendToDLQ{}
+
+type Action interface {
+	Type() ActionType
+}
+
+type ActionContinue struct{}
+
+func (a ActionContinue) Type() ActionType {
+	return ActionTypeContinue
+}
+
+type ActionRetry struct{}
+
+func (a ActionRetry) Type() ActionType {
+	return ActionTypeRetry
+}
+
+type ActionFail struct{}
+
+func (a ActionFail) Type() ActionType {
+	return ActionTypeFail
+}
+
+type ActionSendToDLQ struct {
+	topic string
+}
+
+func (a ActionSendToDLQ) Type() ActionType {
+	return ActionTypeSendToDLQ
+}
+
+func (a ActionSendToDLQ) Topic() string {
+	return a.topic
 }
 
 type Handler interface {
