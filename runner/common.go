@@ -21,8 +21,8 @@ func emitError(errCh chan<- error, l logger.Logger, err error) {
 
 func sendToDLQ(
 	ctx context.Context, producer kafka.Producer, record kafka.ConsumerRecord, ec errorhandler.ErrorContext,
-	topic string, logger logger.Logger,
-) {
+	topic string,
+) error {
 	key := make([]byte, len(record.Key))
 	copy(key, record.Key)
 	value := make([]byte, len(record.Value))
@@ -34,7 +34,7 @@ func sendToDLQ(
 		copy(vCopy, h.Value)
 		headers[i] = kafka.Header{Key: h.Key, Value: vCopy}
 	}
-	
+
 	headers = append(
 		headers,
 		kafka.Header{Key: "x-original-topic", Value: []byte(record.Topic)},
@@ -51,23 +51,5 @@ func sendToDLQ(
 		headers = append(headers, kafka.Header{Key: "x-error-node", Value: []byte(ec.NodeName)})
 	}
 
-	if err := producer.Send(ctx, topic, key, value, headers); err != nil {
-		logger.Error(
-			"Failed to send record to DLQ, dropping record",
-			"error", err,
-			"key", string(key),
-			"original_topic", record.Topic,
-			"original_partition", record.Partition,
-			"original_offset", record.Offset,
-		)
-		return
-	}
-
-	logger.Debug(
-		"Sent record to DLQ",
-		"key", string(key),
-		"original_topic", record.Topic,
-		"original_partition", record.Partition,
-		"original_offset", record.Offset,
-	)
+	return producer.Send(ctx, topic, key, value, headers)
 }

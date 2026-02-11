@@ -71,6 +71,8 @@ func (r *SingleThreaded) shutdown() {
 	r.logger.Info("Shutdown complete")
 }
 
+// doPoll polls for records and processes them sequentially
+// returns any fatal errors that should stop the runner
 func (r *SingleThreaded) doPoll(ctx context.Context) error {
 	r.logger.Debug("Polling for records")
 
@@ -95,7 +97,6 @@ func (r *SingleThreaded) doPoll(ctx context.Context) error {
 			"offset", record.Offset,
 		)
 
-		// only errors that should stop the runner are returned here
 		if err := r.processRecord(ctx, record); err != nil {
 			return fmt.Errorf("fatal error processing record: %w", err)
 		}
@@ -143,7 +144,18 @@ func (r *SingleThreaded) processRecord(ctx context.Context, record kafka.Consume
 				return errors.New("invalid action type, expected ActionSendToDLQ")
 			}
 
-			sendToDLQ(ctx, r.producer, record, ec, a.Topic(), r.logger)
+			if err := sendToDLQ(ctx, r.producer, record, ec, a.Topic()); err != nil {
+				r.logger.Error(
+					"Failed to send record to DLQ.",
+					"error", err,
+					"key", string(record.Key),
+					"original_topic", record.Topic,
+					"original_partition", record.Partition,
+					"original_offset", record.Offset,
+				)
+				return err
+			}
+
 			return nil
 		case errorhandler.ActionTypeContinue:
 			return nil

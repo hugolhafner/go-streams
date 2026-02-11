@@ -167,7 +167,18 @@ func (w *partitionWorker) processRecord(ctx context.Context, rec kafka.ConsumerR
 				return errors.New("invalid action type, expected ActionSendToDLQ")
 			}
 
-			sendToDLQ(ctx, w.producer, rec, ec, a.Topic(), w.logger)
+			if err := sendToDLQ(ctx, w.producer, rec, ec, a.Topic()); err != nil {
+				w.logger.Error(
+					"Failed to send record to DLQ.",
+					"error", err,
+					"key", string(rec.Key),
+					"original_topic", rec.Topic,
+					"original_partition", rec.Partition,
+					"original_offset", rec.Offset,
+				)
+				return err
+			}
+
 			w.consumer.MarkRecords(rec)
 			return nil
 
