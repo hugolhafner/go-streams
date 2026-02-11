@@ -15,7 +15,7 @@ type ProducedRecord struct {
 	Topic   string
 	Key     []byte
 	Value   []byte
-	Headers map[string][]byte
+	Headers []kafka.Header
 }
 
 type Client struct {
@@ -221,7 +221,7 @@ func (c *Client) Commit(ctx context.Context) error {
 
 // Send produces a record to the specified topic.
 // The record is stored internally and can be verified using ProducedRecords().
-func (c *Client) Send(ctx context.Context, topic string, key, value []byte, headers map[string][]byte) error {
+func (c *Client) Send(ctx context.Context, topic string, key, value []byte, headers []kafka.Header) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -231,11 +231,11 @@ func (c *Client) Send(ctx context.Context, topic string, key, value []byte, head
 		}
 	}
 
-	headersCopy := make(map[string][]byte, len(headers))
-	for k, v := range headers {
-		copied := make([]byte, len(v))
-		copy(copied, v)
-		headersCopy[k] = copied
+	headersCopy := make([]kafka.Header, len(headers))
+	for i, h := range headers {
+		vCopy := make([]byte, len(h.Value))
+		copy(vCopy, h.Value)
+		headersCopy[i] = kafka.Header{Key: h.Key, Value: vCopy}
 	}
 
 	keyCopy := make([]byte, len(key))

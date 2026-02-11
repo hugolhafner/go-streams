@@ -17,7 +17,6 @@ func Record(key, value string) *RecordBuilder {
 		record: kafka.ConsumerRecord{
 			Key:       []byte(key),
 			Value:     []byte(value),
-			Headers:   make(map[string][]byte),
 			Timestamp: time.Now(),
 		},
 	}
@@ -29,7 +28,6 @@ func RecordBytes(key, value []byte) *RecordBuilder {
 		record: kafka.ConsumerRecord{
 			Key:       key,
 			Value:     value,
-			Headers:   make(map[string][]byte),
 			Timestamp: time.Now(),
 		},
 	}
@@ -49,15 +47,12 @@ func (b *RecordBuilder) WithTimestamp(ts time.Time) *RecordBuilder {
 
 // WithHeader adds a header to the record.
 func (b *RecordBuilder) WithHeader(key string, value []byte) *RecordBuilder {
-	if b.record.Headers == nil {
-		b.record.Headers = make(map[string][]byte)
-	}
-	b.record.Headers[key] = value
+	b.record.Headers = append(b.record.Headers, kafka.Header{Key: key, Value: value})
 	return b
 }
 
 // WithHeaders sets all headers on the record.
-func (b *RecordBuilder) WithHeaders(headers map[string][]byte) *RecordBuilder {
+func (b *RecordBuilder) WithHeaders(headers []kafka.Header) *RecordBuilder {
 	b.record.Headers = headers
 	return b
 }

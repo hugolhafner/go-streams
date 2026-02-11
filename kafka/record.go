@@ -1,13 +1,32 @@
 package kafka
 
 import (
+	"strconv"
 	"time"
 )
+
+// Header represents a single Kafka record header
+// kafka needs to support multiple headers with duplicate keys
+type Header struct {
+	Key   string
+	Value []byte
+}
+
+// HeaderValue returns the value of the first header matching the given key
+// Returns (nil, false) if no header with that key exists
+func HeaderValue(headers []Header, key string) ([]byte, bool) {
+	for _, h := range headers {
+		if h.Key == key {
+			return h.Value, true
+		}
+	}
+	return nil, false
+}
 
 type ConsumerRecord struct {
 	Key         []byte
 	Value       []byte
-	Headers     map[string][]byte
+	Headers     []Header
 	Topic       string
 	Partition   int32
 	Offset      int64
@@ -23,11 +42,11 @@ func (r ConsumerRecord) TopicPartition() TopicPartition {
 }
 
 func (r ConsumerRecord) Copy() ConsumerRecord {
-	headersCopy := make(map[string][]byte, len(r.Headers))
-	for k, v := range r.Headers {
-		vCopy := make([]byte, len(v))
-		copy(vCopy, v)
-		headersCopy[k] = vCopy
+	headersCopy := make([]Header, len(r.Headers))
+	for i, h := range r.Headers {
+		vCopy := make([]byte, len(h.Value))
+		copy(vCopy, h.Value)
+		headersCopy[i] = Header{Key: h.Key, Value: vCopy}
 	}
 
 	keyCopy := make([]byte, len(r.Key))
@@ -54,7 +73,7 @@ type TopicPartition struct {
 }
 
 func (tp TopicPartition) String() string {
-	return tp.Topic + "-" + string(tp.Partition)
+	return tp.Topic + "-" + strconv.FormatInt(int64(tp.Partition), 10)
 }
 
 type Offset struct {

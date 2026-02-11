@@ -24,6 +24,7 @@ type partitionWorker struct {
 	recordCh chan kafka.ConsumerRecord
 	doneCh   chan struct{}
 	stopCh   chan struct{}
+	errCh    chan error
 
 	wg sync.WaitGroup
 
@@ -39,6 +40,7 @@ func newPartitionWorker(
 	producer kafka.Producer,
 	errorHandler errorhandler.Handler,
 	bufferSize int,
+	errCh chan error,
 	l logger.Logger,
 ) *partitionWorker {
 	return &partitionWorker{
@@ -55,6 +57,7 @@ func newPartitionWorker(
 		recordCh: make(chan kafka.ConsumerRecord, bufferSize),
 		doneCh:   make(chan struct{}),
 		stopCh:   make(chan struct{}),
+		errCh:    errCh,
 	}
 }
 
@@ -130,33 +133,39 @@ func (w *partitionWorker) processRecord(ctx context.Context, rec kafka.ConsumerR
 		lastErr = err
 
 		action := w.errorHandler.Handle(ctx, ec)
-		switch action {
-		case errorhandler.ActionFail:
+		switch action.Type() {
+		case errorhandler.ActionTypeFail:
 			w.logger.Error(
 				"Record processing failed, stopping worker",
 				"error", err,
 				"offset", rec.Offset,
 			)
+			emitError(w.errCh, w.logger, fmt.Errorf("worker %v: fatal processing error: %w", w.partition, err))
 			return
 
-		case errorhandler.ActionRetry:
+		case errorhandler.ActionTypeRetry:
 			ec = ec.IncrementAttempt()
 			w.logger.Debug("Retrying record", "attempt", ec.Attempt, "offset", rec.Offset)
 			continue
 
-		case errorhandler.ActionSendToDLQ:
-			// TODO: Make DLQ topic configurable
-			sendToDLQ(ctx, w.producer, rec, ec, "dlq", w.logger)
+		case errorhandler.ActionTypeSendToDLQ:
+			a, ok := action.(errorhandler.ActionSendToDLQ)
+			if !ok {
+				w.logger.Error("Invalid action type, expected ActionSendToDLQ", "action", action.Type().String())
+				return
+			}
+
+			sendToDLQ(ctx, w.producer, rec, ec, a.Topic(), w.logger)
 			w.consumer.MarkRecords(rec)
 			return
 
-		case errorhandler.ActionContinue:
+		case errorhandler.ActionTypeContinue:
 			w.consumer.MarkRecords(rec)
 			w.logger.Debug("Skipping failed record", "offset", rec.Offset)
 			return
 
 		default:
-			w.logger.Error("Unknown error handler action, failing", "action", action.String(), "error", lastErr)
+			w.logger.Error("Unknown error handler action, failing", "action", action.Type().String(), "error", lastErr)
 			return
 		}
 	}

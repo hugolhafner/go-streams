@@ -1,6 +1,8 @@
 package serde
 
 import (
+	"reflect"
+
 	"google.golang.org/protobuf/proto"
 )
 
@@ -16,7 +18,7 @@ func (s protobufSerde[T]) Serialise(topic string, value T) ([]byte, error) {
 }
 
 func (s protobufSerde[T]) Deserialise(topic string, data []byte) (T, error) {
-	var result T
+	result := reflect.New(reflect.TypeOf(*new(T)).Elem()).Interface().(T)
 	err := proto.Unmarshal(data, result)
 	return result, err
 }

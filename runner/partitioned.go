@@ -181,6 +181,7 @@ func (r *PartitionedRunner) OnAssigned(partitions []kafka.TopicPartition) {
 			r.producer,
 			r.config.ErrorHandler,
 			r.config.ChannelBufferSize,
+			r.errCh,
 			r.logger,
 		)
 

@@ -34,9 +34,9 @@ func TestMockClient_Send(t *testing.T) {
 func TestMockClient_SendWithHeaders(t *testing.T) {
 	client := mockkafka.NewClient()
 
-	headers := map[string][]byte{
-		"trace-id":    []byte("abc123"),
-		"correlation": []byte("xyz"),
+	headers := []kafka.Header{
+		{Key: "trace-id", Value: []byte("abc123")},
+		{Key: "correlation", Value: []byte("xyz")},
 	}
 
 	err := client.Send(context.Background(), "test-topic", []byte("key"), []byte("value"), headers)
@@ -44,8 +44,14 @@ func TestMockClient_SendWithHeaders(t *testing.T) {
 
 	records := client.ProducedRecords()
 	require.Len(t, records, 1)
-	require.Equal(t, []byte("abc123"), records[0].Headers["trace-id"])
-	require.Equal(t, []byte("xyz"), records[0].Headers["correlation"])
+
+	traceVal, ok := kafka.HeaderValue(records[0].Headers, "trace-id")
+	require.True(t, ok)
+	require.Equal(t, []byte("abc123"), traceVal)
+
+	corrVal, ok := kafka.HeaderValue(records[0].Headers, "correlation")
+	require.True(t, ok)
+	require.Equal(t, []byte("xyz"), corrVal)
 }
 
 func TestMockClient_SendMultiple(t *testing.T) {
@@ -583,7 +589,9 @@ func TestRecord_Builder(t *testing.T) {
 	require.Equal(t, []byte("value"), record.Value)
 	require.Equal(t, int64(42), record.Offset)
 	require.Equal(t, ts, record.Timestamp)
-	require.Equal(t, []byte("123"), record.Headers["trace"])
+	traceVal, ok := kafka.HeaderValue(record.Headers, "trace")
+	require.True(t, ok)
+	require.Equal(t, []byte("123"), traceVal)
 	require.Equal(t, int32(5), record.LeaderEpoch)
 }
 

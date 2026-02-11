@@ -13,9 +13,10 @@ import (
 )
 
 func TestNewErrorContext(t *testing.T) {
-	headers := make(map[string][]byte)
-	headers["header-1"] = []byte("value-1")
-	headers["header-2"] = []byte("value-2")
+	headers := []kafka.Header{
+		{Key: "header-1", Value: []byte("value-1")},
+		{Key: "header-2", Value: []byte("value-2")},
+	}
 
 	record := kafka.ConsumerRecord{
 		Key:         []byte("key-123"),
@@ -37,9 +38,10 @@ func TestNewErrorContext(t *testing.T) {
 }
 
 func TestNewErrorContext_Copy(t *testing.T) {
-	headers := make(map[string][]byte)
-	headers["header-1"] = []byte("value-1")
-	headers["header-2"] = []byte("value-2")
+	headers := []kafka.Header{
+		{Key: "header-1", Value: []byte("value-1")},
+		{Key: "header-2", Value: []byte("value-2")},
+	}
 
 	key := []byte("key-123")
 	value := []byte("value-123")
@@ -57,11 +59,13 @@ func TestNewErrorContext_Copy(t *testing.T) {
 
 	err := errorhandler.NewErrorContext(record, nil)
 
-	record.Headers["header-1"] = []byte("modified-value")
+	record.Headers[0].Value = []byte("modified-value")
 	record.Key = []byte("modified-key")
 	record.Value = []byte("modified-value")
 
-	require.Equal(t, []byte("value-1"), err.Record.Headers["header-1"])
+	h1Val, ok := kafka.HeaderValue(err.Record.Headers, "header-1")
+	require.True(t, ok)
+	require.Equal(t, []byte("value-1"), h1Val)
 	require.Equal(t, []byte("key-123"), err.Record.Key)
 	require.Equal(t, []byte("value-123"), err.Record.Value)
 }

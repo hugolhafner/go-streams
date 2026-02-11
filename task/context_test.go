@@ -302,7 +302,6 @@ func newTestConsumerRecord(topic string, partition int32, offset int64, key, val
 		Offset:      offset,
 		Key:         []byte(key),
 		Value:       []byte(value),
-		Headers:     make(map[string][]byte),
 		Timestamp:   time.Now(),
 		LeaderEpoch: 1,
 	}

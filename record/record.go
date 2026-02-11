@@ -2,11 +2,13 @@ package record
 
 import (
 	"time"
+
+	"github.com/hugolhafner/go-streams/kafka"
 )
 
 type Metadata struct {
 	Timestamp time.Time
-	Headers   map[string][]byte
+	Headers   []kafka.Header
 
 	Topic     string
 	Partition int32

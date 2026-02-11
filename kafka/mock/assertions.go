@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/hugolhafner/go-streams/kafka"
+
 	"github.com/stretchr/testify/require"
 )
 
@@ -186,9 +187,7 @@ func (c *Client) AssertHeader(t testing.TB, topic string, key []byte, headerKey 
 	records := c.ProducedRecordsForTopic(topic)
 	for _, r := range records {
 		if bytes.Equal(r.Key, key) {
-			require.NotNil(t, r.Headers, "record with key=%q has no headers", string(key))
-
-			actual, ok := r.Headers[headerKey]
+			actual, ok := kafka.HeaderValue(r.Headers, headerKey)
 			require.True(t, ok, "record with key=%q missing header %q", string(key), headerKey)
 			require.True(
 				t, bytes.Equal(actual, headerValue), "record with key=%q has header %q=%q, expected %q", string(key),

@@ -168,7 +168,7 @@ func (k *KgoClient) Commit(ctx context.Context) error {
 	return k.client.CommitMarkedOffsets(ctx)
 }
 
-func (k *KgoClient) Send(ctx context.Context, topic string, key, value []byte, headers map[string][]byte) error {
+func (k *KgoClient) Send(ctx context.Context, topic string, key, value []byte, headers []Header) error {
 	record := &kgo.Record{
 		Topic:   topic,
 		Key:     key,
@@ -230,26 +230,19 @@ func convertRecords(records []*kgo.Record) []ConsumerRecord {
 	return converted
 }
 
-func convertFromKgoHeaders(headers []kgo.RecordHeader) map[string][]byte {
-	mapped := make(map[string][]byte, len(headers))
-	for _, h := range headers {
-		mapped[h.Key] = h.Value
+func convertFromKgoHeaders(headers []kgo.RecordHeader) []Header {
+	converted := make([]Header, len(headers))
+	for i, h := range headers {
+		converted[i] = Header{Key: h.Key, Value: h.Value}
 	}
-
-	return mapped
+	return converted
 }
 
-func convertToKgoHeaders(headers map[string][]byte) []kgo.RecordHeader {
-	kgoHeaders := make([]kgo.RecordHeader, 0, len(headers))
-	for k, v := range headers {
-		kgoHeaders = append(
-			kgoHeaders, kgo.RecordHeader{
-				Key:   k,
-				Value: v,
-			},
-		)
+func convertToKgoHeaders(headers []Header) []kgo.RecordHeader {
+	kgoHeaders := make([]kgo.RecordHeader, len(headers))
+	for i, h := range headers {
+		kgoHeaders[i] = kgo.RecordHeader{Key: h.Key, Value: h.Value}
 	}
-
 	return kgoHeaders
 }
 

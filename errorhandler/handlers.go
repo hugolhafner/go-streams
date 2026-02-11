@@ -22,7 +22,7 @@ func LogAndContinue(logger logger.Logger) Handler {
 				"attempt", ec.Attempt,
 				"node", ec.NodeName,
 			)
-			return ActionContinue
+			return ActionContinue{}
 		},
 	)
 }
@@ -41,7 +41,7 @@ func LogAndFail(logger logger.Logger) Handler {
 				"attempt", ec.Attempt,
 				"node", ec.NodeName,
 			)
-			return ActionFail
+			return ActionFail{}
 		},
 	)
 }
@@ -53,12 +53,12 @@ func WithMaxAttempts(maxAttempts int, b backoff.Backoff, fallback Handler) Handl
 		func(ctx context.Context, ec ErrorContext) Action {
 			select {
 			case <-ctx.Done():
-				return ActionFail
+				return ActionFail{}
 			case <-time.After(b.Next(uint(ec.Attempt))):
 			}
 
 			if ec.Attempt < maxAttempts {
-				return ActionRetry
+				return ActionRetry{}
 			}
 
 			return fallback.Handle(ctx, ec)
@@ -68,16 +68,16 @@ func WithMaxAttempts(maxAttempts int, b backoff.Backoff, fallback Handler) Handl
 
 // WithDLQ returns SendToDLQ action when inner would Continue
 // Useful for: WithMaxAttempts(3, backoff, WithDLQ(inner))
-func WithDLQ(inner Handler) Handler {
+func WithDLQ(topic string, inner Handler) Handler {
 	return HandlerFunc(
 		func(ctx context.Context, ec ErrorContext) Action {
-			action := ActionContinue
+			var action Action = ActionContinue{}
 			if inner != nil {
 				action = inner.Handle(ctx, ec)
 			}
 
-			if action == ActionContinue {
-				return ActionSendToDLQ
+			if action.Type() == ActionTypeContinue {
+				return ActionSendToDLQ{topic: topic}
 			}
 
 			return action
@@ -94,7 +94,7 @@ func ActionLogger(l logger.Logger, level logger.LogLevel, next Handler) Handler 
 			l.Log(
 				level,
 				"Error handler decision",
-				"action", action.String(),
+				"action", action.Type().String(),
 				"error", ec.Error,
 				"key", ec.Record.Key,
 				"topic", ec.Record.Topic,

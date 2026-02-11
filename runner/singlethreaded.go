@@ -2,6 +2,7 @@ package runner
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -20,6 +21,7 @@ type SingleThreaded struct {
 	producer    kafka.Producer
 	taskManager task.Manager
 	topology    *topology.Topology
+	config      SingleThreadedConfig
 
 	errorHandler errorhandler.Handler
 	logger       logger.Logger
@@ -44,6 +46,7 @@ func NewSingleThreadedRunner(
 			producer:     producer,
 			taskManager:  task.NewManager(f, producer, config.Logger),
 			topology:     t,
+			config:       config,
 			errorHandler: config.ErrorHandler,
 			errChan:      make(chan error, 1),
 			logger: config.Logger.
@@ -105,53 +108,6 @@ func (r *SingleThreaded) doPoll(ctx context.Context) error {
 	return nil
 }
 
-func (r *SingleThreaded) sendToDLQ(
-	ctx context.Context, record kafka.ConsumerRecord, ec errorhandler.ErrorContext,
-) {
-	key := make([]byte, len(record.Key))
-	copy(key, record.Key)
-	value := make([]byte, len(record.Value))
-	copy(value, record.Value)
-
-	headers := make(map[string][]byte)
-	for k, v := range record.Headers {
-		headers[k] = make([]byte, len(v))
-		copy(headers[k], v)
-	}
-
-	headers["x-original-topic"] = []byte(record.Topic)
-	headers["x-original-partition"] = []byte(fmt.Sprintf("%d", record.Partition))
-	headers["x-original-offset"] = []byte(fmt.Sprintf("%d", record.Offset))
-
-	headers["x-error-message"] = []byte(ec.Error.Error())
-	headers["x-error-attempt"] = []byte(fmt.Sprintf("%d", ec.Attempt))
-	headers["x-error-timestamp"] = []byte(time.Now().Format(time.RFC3339))
-	if ec.NodeName != "" {
-		headers["x-error-node"] = []byte(ec.NodeName)
-	}
-
-	err := r.producer.Send(ctx, "dlq", key, value, headers)
-
-	if err == nil {
-		r.logger.Debug(
-			"Sent record to DLQ",
-			"key", string(key),
-			"original_topic", record.Topic,
-			"original_partition", record.Partition,
-			"original_offset", record.Offset,
-		)
-	} else {
-		r.logger.Error(
-			"Failed to send record to DLQ, dropping record",
-			"error", err,
-			"key", string(key),
-			"original_topic", record.Topic,
-			"original_partition", record.Partition,
-			"original_offset", record.Offset,
-		)
-	}
-}
-
 func (r *SingleThreaded) processRecord(ctx context.Context, record kafka.ConsumerRecord) error {
 	t, ok := r.taskManager.TaskFor(record.TopicPartition())
 	if !ok {
@@ -176,16 +132,22 @@ func (r *SingleThreaded) processRecord(ctx context.Context, record kafka.Consume
 		ec = ec.WithError(err)
 
 		action := r.errorHandler.Handle(ctx, ec)
-		switch action {
-		case errorhandler.ActionFail:
+		switch action.Type() {
+		case errorhandler.ActionTypeFail:
 			return err
-		case errorhandler.ActionRetry:
+		case errorhandler.ActionTypeRetry:
 			ec = ec.IncrementAttempt()
 			continue
-		case errorhandler.ActionSendToDLQ:
-			r.sendToDLQ(ctx, record, ec)
+		case errorhandler.ActionTypeSendToDLQ:
+			a, ok := action.(errorhandler.ActionSendToDLQ)
+			if !ok {
+				r.logger.Error("Invalid action type, expected ActionSendToDLQ", "action", action.Type().String())
+				return errors.New("invalid action type, expected ActionSendToDLQ")
+			}
+
+			sendToDLQ(ctx, r.producer, record, ec, a.Topic(), r.logger)
 			return nil
-		case errorhandler.ActionContinue:
+		case errorhandler.ActionTypeContinue:
 			return nil
 		default:
 			r.logger.Error(

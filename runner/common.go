@@ -28,24 +28,27 @@ func sendToDLQ(
 	value := make([]byte, len(record.Value))
 	copy(value, record.Value)
 
-	headers := make(map[string][]byte, len(record.Headers)+6)
-	for k, v := range record.Headers {
-		headerCopy := make([]byte, len(v))
-		copy(headerCopy, v)
-		headers[k] = headerCopy
+	headers := make([]kafka.Header, len(record.Headers), len(record.Headers)+7)
+	for i, h := range record.Headers {
+		vCopy := make([]byte, len(h.Value))
+		copy(vCopy, h.Value)
+		headers[i] = kafka.Header{Key: h.Key, Value: vCopy}
 	}
-
-	headers["x-original-topic"] = []byte(record.Topic)
-	headers["x-original-partition"] = []byte(fmt.Sprintf("%d", record.Partition))
-	headers["x-original-offset"] = []byte(fmt.Sprintf("%d", record.Offset))
-	headers["x-error-timestamp"] = []byte(time.Now().Format(time.RFC3339))
-	headers["x-error-attempt"] = []byte(fmt.Sprintf("%d", ec.Attempt))
+	
+	headers = append(
+		headers,
+		kafka.Header{Key: "x-original-topic", Value: []byte(record.Topic)},
+		kafka.Header{Key: "x-original-partition", Value: []byte(fmt.Sprintf("%d", record.Partition))},
+		kafka.Header{Key: "x-original-offset", Value: []byte(fmt.Sprintf("%d", record.Offset))},
+		kafka.Header{Key: "x-error-timestamp", Value: []byte(time.Now().Format(time.RFC3339))},
+		kafka.Header{Key: "x-error-attempt", Value: []byte(fmt.Sprintf("%d", ec.Attempt))},
+	)
 
 	if ec.Error != nil {
-		headers["x-error-message"] = []byte(ec.Error.Error())
+		headers = append(headers, kafka.Header{Key: "x-error-message", Value: []byte(ec.Error.Error())})
 	}
 	if ec.NodeName != "" {
-		headers["x-error-node"] = []byte(ec.NodeName)
+		headers = append(headers, kafka.Header{Key: "x-error-node", Value: []byte(ec.NodeName)})
 	}
 
 	if err := producer.Send(ctx, topic, key, value, headers); err != nil {

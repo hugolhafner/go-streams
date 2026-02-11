@@ -27,12 +27,7 @@ func (s *sinkHandler) Process(ctx context.Context, rec *record.UntypedRecord) er
 		return fmt.Errorf("serialize value: %w", err)
 	}
 
-	var headers map[string][]byte
-	if rec.Headers != nil {
-		headers = rec.Headers
-	}
-
-	if err := s.producer.Send(ctx, topic, key, value, headers); err != nil {
+	if err := s.producer.Send(ctx, topic, key, value, rec.Headers); err != nil {
 		return fmt.Errorf("produce to %s: %w", topic, err)
 	}
 

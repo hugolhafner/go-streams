@@ -78,7 +78,6 @@ func newTestRecord(topic string, partition int32, offset int64, key, value strin
 		Offset:      offset,
 		Key:         []byte(key),
 		Value:       []byte(value),
-		Headers:     make(map[string][]byte),
 		Timestamp:   time.Now(),
 		LeaderEpoch: 1,
 	}
@@ -559,9 +558,9 @@ func TestTopologyTask_HeaderPreservation(t *testing.T) {
 		Offset:    0,
 		Key:       []byte("key"),
 		Value:     []byte("value"),
-		Headers: map[string][]byte{
-			"correlation-id": []byte("abc123"),
-			"trace-id":       []byte("xyz789"),
+		Headers: []kafka.Header{
+			{Key: "correlation-id", Value: []byte("abc123")},
+			{Key: "trace-id", Value: []byte("xyz789")},
 		},
 		Timestamp:   time.Now(),
 		LeaderEpoch: 1,

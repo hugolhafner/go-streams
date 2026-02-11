@@ -12,7 +12,7 @@ type Client interface {
 }
 
 type Producer interface {
-	Send(ctx context.Context, topic string, key, value []byte, headers map[string][]byte) error
+	Send(ctx context.Context, topic string, key, value []byte, headers []Header) error
 	Flush(ctx context.Context) error
 	Close()
 }
