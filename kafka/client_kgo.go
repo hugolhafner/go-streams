@@ -112,7 +112,7 @@ func (k *KgoClient) onAssigned(ctx context.Context, c *kgo.Client, assigned map[
 	}
 
 	partitions := mapToTopicPartitions(assigned)
-	cb.OnAssigned(partitions)
+	cb.OnAssigned(ctx, partitions)
 }
 
 func (k *KgoClient) onRevoked(ctx context.Context, c *kgo.Client, revoked map[string][]int32) {
@@ -125,7 +125,7 @@ func (k *KgoClient) onRevoked(ctx context.Context, c *kgo.Client, revoked map[st
 	}
 
 	partitions := mapToTopicPartitions(revoked)
-	cb.OnRevoked(partitions)
+	cb.OnRevoked(ctx, partitions)
 }
 
 func (k *KgoClient) Subscribe(topics []string, rebalanceCb RebalanceCallback) error {
@@ -196,6 +196,10 @@ func (k *KgoClient) PausePartitions(partitions ...TopicPartition) {
 
 func (k *KgoClient) ResumePartitions(partitions ...TopicPartition) {
 	k.client.ResumeFetchPartitions(topicPartitionsToMap(partitions))
+}
+
+func (k *KgoClient) GroupID() string {
+	return k.config.GroupID
 }
 
 func (k *KgoClient) Close() {

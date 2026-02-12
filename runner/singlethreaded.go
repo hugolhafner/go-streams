@@ -2,15 +2,18 @@ package runner
 
 import (
 	"context"
-	"errors"
 	"fmt"
+	"strconv"
 	"time"
 
-	"github.com/hugolhafner/go-streams/errorhandler"
 	"github.com/hugolhafner/go-streams/kafka"
 	"github.com/hugolhafner/go-streams/logger"
+	streamsotel "github.com/hugolhafner/go-streams/otel"
 	"github.com/hugolhafner/go-streams/task"
 	"github.com/hugolhafner/go-streams/topology"
+	"go.opentelemetry.io/otel/metric"
+	semconv "go.opentelemetry.io/otel/semconv/v1.39.0"
+	"go.opentelemetry.io/otel/trace"
 )
 
 var _ Runner = (*SingleThreaded)(nil)
@@ -23,7 +26,8 @@ type SingleThreaded struct {
 	topology    *topology.Topology
 	config      SingleThreadedConfig
 
-	logger logger.Logger
+	logger    logger.Logger
+	telemetry *streamsotel.Telemetry
 
 	// errChan is used to signal fatal errors from goroutines to the main Run loop
 	errChan chan error
@@ -39,6 +43,7 @@ func NewSingleThreadedRunner(
 
 	return func(
 		t *topology.Topology, f task.Factory, consumer kafka.Consumer, producer kafka.Producer,
+		telemetry *streamsotel.Telemetry,
 	) (Runner, error) {
 		return &SingleThreaded{
 			consumer:    consumer,
@@ -47,6 +52,7 @@ func NewSingleThreadedRunner(
 			topology:    t,
 			config:      config,
 			errChan:     make(chan error, 1),
+			telemetry:   telemetry,
 			logger: config.Logger.
 				With("component", "runner").
 				With("runner", "single-threaded"),
@@ -76,10 +82,25 @@ func (r *SingleThreaded) shutdown() {
 func (r *SingleThreaded) doPoll(ctx context.Context) error {
 	r.logger.Debug("Polling for records")
 
+	tel := r.telemetry
+	pollStart := time.Now()
+
 	records, err := r.consumer.Poll(ctx)
+
 	if err != nil {
+		tel.PollDuration.Record(
+			ctx, time.Since(pollStart).Seconds(), metric.WithAttributes(
+				streamsotel.AttrPollStatus.String(streamsotel.StatusError),
+			),
+		)
 		return fmt.Errorf("failed to poll: %w", err)
 	}
+
+	tel.PollDuration.Record(
+		ctx, time.Since(pollStart).Seconds(), metric.WithAttributes(
+			streamsotel.AttrPollStatus.String(streamsotel.StatusSuccess),
+		),
+	)
 
 	if len(records) == 0 {
 		r.logger.Debug("No records received from poll")
@@ -87,6 +108,18 @@ func (r *SingleThreaded) doPoll(ctx context.Context) error {
 	}
 
 	r.logger.Debug("Received records", "records", len(records))
+
+	var receiveSpan trace.Span
+	ctx, receiveSpan = tel.Tracer.Start(
+		ctx, "receive",
+		trace.WithSpanKind(trace.SpanKindConsumer),
+		trace.WithAttributes(
+			semconv.MessagingSystemKafka,
+			semconv.MessagingOperationTypeReceive,
+			semconv.MessagingBatchMessageCount(len(records)),
+		),
+	)
+	defer receiveSpan.End()
 
 	for _, record := range records {
 		r.logger.Debug(
@@ -97,11 +130,16 @@ func (r *SingleThreaded) doPoll(ctx context.Context) error {
 			"offset", record.Offset,
 		)
 
+		tel.MessagesConsumed.Add(
+			ctx, 1, metric.WithAttributes(
+				semconv.MessagingDestinationName(record.Topic),
+				semconv.MessagingDestinationPartitionID(strconv.FormatInt(int64(record.Partition), 10)),
+			),
+		)
+
 		if err := r.processRecord(ctx, record); err != nil {
 			return fmt.Errorf("fatal error processing record: %w", err)
 		}
-
-		r.consumer.MarkRecords(record)
 	}
 
 	return nil
@@ -117,62 +155,7 @@ func (r *SingleThreaded) processRecord(ctx context.Context, record kafka.Consume
 		return nil
 	}
 
-	ec := errorhandler.NewErrorContext(record, nil)
-
-	for {
-		err := t.Process(ctx, record)
-		if err == nil {
-			return nil
-		}
-
-		if pErr, ok := task.AsProcessError(err); ok {
-			ec = ec.WithNodeName(pErr.Node)
-		}
-		ec = ec.WithError(err)
-
-		action := r.config.ErrorHandler.Handle(ctx, ec)
-		switch action.Type() {
-		case errorhandler.ActionTypeFail:
-			return err
-		case errorhandler.ActionTypeRetry:
-			ec = ec.IncrementAttempt()
-			continue
-		case errorhandler.ActionTypeSendToDLQ:
-			a, ok := action.(errorhandler.ActionSendToDLQ)
-			if !ok {
-				r.logger.Error("Invalid action type, expected ActionSendToDLQ", "action", action.Type().String())
-				return errors.New("invalid action type, expected ActionSendToDLQ")
-			}
-
-			if err := sendToDLQ(ctx, r.producer, record, ec, a.Topic()); err != nil {
-				r.logger.Error(
-					"Failed to send record to DLQ.",
-					"error", err,
-					"key", string(record.Key),
-					"original_topic", record.Topic,
-					"original_partition", record.Partition,
-					"original_offset", record.Offset,
-				)
-				return err
-			}
-
-			return nil
-		case errorhandler.ActionTypeContinue:
-			return nil
-		default:
-			r.logger.Error(
-				"Unknown error handler action, failing record",
-				"error", ec.Error,
-				"key", ec.Record.Key,
-				"topic", ec.Record.Topic,
-				"offset", ec.Record.Offset,
-				"partition", ec.Record.Partition,
-				"attempt", ec.Attempt,
-				"node", ec.NodeName,
-			)
-			return err
-		}
-	}
+	return processRecordWithRetry(ctx, record, t, r.consumer, r.producer, r.config.ErrorHandler, r.telemetry, r.logger)
 }
 
 func (r *SingleThreaded) emitErr(err error) {
@@ -183,29 +166,36 @@ func (r *SingleThreaded) emitErr(err error) {
 	}
 }
 
-func (r *SingleThreaded) OnAssigned(partitions []kafka.TopicPartition) {
+func (r *SingleThreaded) OnAssigned(ctx context.Context, partitions []kafka.TopicPartition) {
 	r.logger.Debug("Assigned partitions", "partitions", partitions)
 	r.logger.Debug("Creating tasks for partitions")
 	if err := r.taskManager.CreateTasks(partitions); err != nil {
 		r.logger.Error("Failed to create tasks on assigned partitions", "error", err)
 		r.emitErr(err)
+		return
 	}
+	r.telemetry.TasksActive.Add(
+		ctx, int64(len(partitions)), metric.WithAttributes(
+			streamsotel.AttrRunnerType.String(streamsotel.RunnerTypeSingleThreaded),
+		),
+	)
 }
 
-func (r *SingleThreaded) OnRevoked(partitions []kafka.TopicPartition) {
+func (r *SingleThreaded) OnRevoked(ctx context.Context, partitions []kafka.TopicPartition) {
 	// Close tasks first to stop processing new records
 	r.logger.Debug("Revoking partitions", "partitions", partitions)
 	r.logger.Debug("Closing tasks for revoked partitions")
+
 	if err := r.taskManager.CloseTasks(partitions); err != nil {
 		r.logger.Error("Failed to close tasks on revoked partitions", "error", err)
 		r.emitErr(err)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
+	commitCtx, cancel := context.WithTimeout(context.Background(), time.Second*10)
 	defer cancel()
 
 	r.logger.Debug("Forcing a commit prior to revoking partitions")
-	if err := r.consumer.Commit(ctx); err != nil {
+	if err := r.consumer.Commit(commitCtx); err != nil {
 		r.logger.Error("Failed to commit offsets on revoked partitions", "error", err)
 	}
 
@@ -214,6 +204,12 @@ func (r *SingleThreaded) OnRevoked(partitions []kafka.TopicPartition) {
 		r.logger.Error("Failed to delete tasks on revoked partitions", "error", err)
 		r.emitErr(err)
 	}
+
+	r.telemetry.TasksActive.Add(
+		ctx, -int64(len(partitions)), metric.WithAttributes(
+			streamsotel.AttrRunnerType.String(streamsotel.RunnerTypeSingleThreaded),
+		),
+	)
 }
 
 func (r *SingleThreaded) Run(ctx context.Context) error {

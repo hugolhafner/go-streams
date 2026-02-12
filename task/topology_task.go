@@ -7,9 +7,11 @@ import (
 
 	"github.com/hugolhafner/go-streams/kafka"
 	"github.com/hugolhafner/go-streams/logger"
+	streamsotel "github.com/hugolhafner/go-streams/otel"
 	"github.com/hugolhafner/go-streams/processor"
 	"github.com/hugolhafner/go-streams/record"
 	"github.com/hugolhafner/go-streams/topology"
+	"go.opentelemetry.io/otel/trace"
 )
 
 var (
@@ -27,7 +29,8 @@ type TopologyTask struct {
 	producer   kafka.Producer
 	topology   *topology.Topology
 
-	logger logger.Logger
+	logger    logger.Logger
+	telemetry *streamsotel.Telemetry
 
 	closed bool
 	mu     sync.RWMutex
@@ -104,8 +107,23 @@ func (t *TopologyTask) processAt(ctx context.Context, nodeName string, rec *reco
 		return fmt.Errorf("unknown node: %s", nodeName)
 	}
 
+	ctx, span := t.telemetry.Tracer.Start(
+		ctx, nodeName+" execute",
+		trace.WithSpanKind(trace.SpanKindInternal),
+		trace.WithAttributes(
+			streamsotel.AttrNodeName.String(nodeName),
+			streamsotel.AttrNodeType.String(streamsotel.NodeTypeProcessor),
+		),
+	)
+	defer span.End()
+
 	t.logger.Debug("Processing record at processor node", "node", nodeName)
-	return proc.Process(ctx, rec)
+	if err := proc.Process(ctx, rec); err != nil {
+		span.RecordError(err)
+		return err
+	}
+
+	return nil
 }
 
 func (t *TopologyTask) IsClosed() bool {
@@ -155,8 +173,9 @@ func (t *TopologyTask) init() (*TopologyTask, error) {
 	for name, node := range t.topology.Nodes() {
 		if sn, ok := node.(topology.SinkNode); ok {
 			t.sinks[name] = &sinkHandler{
-				node:     sn,
-				producer: t.producer,
+				node:      sn,
+				producer:  t.producer,
+				telemetry: t.telemetry,
 			}
 		}
 	}

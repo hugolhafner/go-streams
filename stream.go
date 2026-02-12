@@ -8,9 +8,12 @@ import (
 
 	"github.com/hugolhafner/go-streams/kafka"
 	"github.com/hugolhafner/go-streams/logger"
+	"github.com/hugolhafner/go-streams/otel"
 	"github.com/hugolhafner/go-streams/runner"
 	"github.com/hugolhafner/go-streams/task"
 	"github.com/hugolhafner/go-streams/topology"
+	"go.opentelemetry.io/otel/metric"
+	"go.opentelemetry.io/otel/trace"
 )
 
 const Version = "v0.1.0" // x-release-please-version
@@ -21,7 +24,9 @@ var (
 )
 
 type Config struct {
-	Logger logger.Logger
+	Logger         logger.Logger
+	TracerProvider trace.TracerProvider
+	MeterProvider  metric.MeterProvider
 }
 
 type ConfigOption func(*Config)
@@ -29,6 +34,20 @@ type ConfigOption func(*Config)
 func WithLogger(logger logger.Logger) ConfigOption {
 	return func(c *Config) {
 		c.Logger = logger
+	}
+}
+
+// WithTracerProvider sets the OpenTelemetry TracerProvider for the application.
+func WithTracerProvider(tp trace.TracerProvider) ConfigOption {
+	return func(c *Config) {
+		c.TracerProvider = tp
+	}
+}
+
+// WithMeterProvider sets the OpenTelemetry MeterProvider for the application.
+func WithMeterProvider(mp metric.MeterProvider) ConfigOption {
+	return func(c *Config) {
+		c.MeterProvider = mp
 	}
 }
 
@@ -42,8 +61,9 @@ type Application struct {
 	topology *topology.Topology
 	config   Config
 
-	client kafka.Client
-	logger logger.Logger
+	client    kafka.Client
+	logger    logger.Logger
+	telemetry *otel.Telemetry
 
 	mu        sync.Mutex
 	running   bool
@@ -62,21 +82,27 @@ func NewApplication(client kafka.Client, topology *topology.Topology, opts ...Co
 }
 
 func NewApplicationWithConfig(client kafka.Client, topology *topology.Topology, config Config) (*Application, error) {
+	telem, err := otel.NewTelemetry(config.TracerProvider, config.MeterProvider, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create telemetry: %w", err)
+	}
+
 	return &Application{
-		topology: topology,
-		config:   config,
-		client:   client,
-		logger:   config.Logger,
-		closedCh: make(chan struct{}),
+		topology:  topology,
+		config:    config,
+		client:    client,
+		logger:    config.Logger,
+		telemetry: telem,
+		closedCh:  make(chan struct{}),
 	}, nil
 }
 
 func (a *Application) Run(ctx context.Context) error {
-	return a.RunWith(
-		ctx, runner.NewSingleThreadedRunner(
-			runner.WithLogger(a.logger),
-		),
-	)
+	opts := []runner.SingleThreadedOption{
+		runner.WithLogger(a.logger),
+	}
+
+	return a.RunWith(ctx, runner.NewSingleThreadedRunner(opts...))
 }
 
 func (a *Application) RunWith(ctx context.Context, factory runner.Factory) error {
@@ -85,12 +111,12 @@ func (a *Application) RunWith(ctx context.Context, factory runner.Factory) error
 	}
 	defer a.Close()
 
-	taskFactory, err := task.NewTopologyTaskFactory(a.topology, a.logger)
+	taskFactory, err := task.NewTopologyTaskFactory(a.topology, a.logger, task.WithTelemetry(a.telemetry))
 	if err != nil {
 		return fmt.Errorf("failed to create task factory: %w", err)
 	}
 
-	r, err := factory(a.topology, taskFactory, a.client, a.client)
+	r, err := factory(a.topology, taskFactory, a.client, a.client, a.telemetry)
 	if err != nil {
 		return fmt.Errorf("failed to create runner: %w", err)
 	}

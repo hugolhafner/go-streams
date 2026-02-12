@@ -24,10 +24,11 @@ type Consumer interface {
 	MarkRecords(records ...ConsumerRecord)
 	PausePartitions(partitions ...TopicPartition)
 	ResumePartitions(partitions ...TopicPartition)
+	GroupID() string
 	Close()
 }
 
 type RebalanceCallback interface {
-	OnAssigned(partitions []TopicPartition)
-	OnRevoked(partitions []TopicPartition)
+	OnAssigned(ctx context.Context, partitions []TopicPartition)
+	OnRevoked(ctx context.Context, partitions []TopicPartition)
 }

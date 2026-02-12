@@ -67,6 +67,10 @@ func (r ConsumerRecord) Copy() ConsumerRecord {
 	}
 }
 
+func (r ConsumerRecord) Size() int {
+	return len(r.Key) + len(r.Value)
+}
+
 type TopicPartition struct {
 	Topic     string
 	Partition int32

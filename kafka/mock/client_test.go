@@ -614,18 +614,18 @@ func TestSimpleRecords_PanicOnOdd(t *testing.T) {
 
 type noopRebalanceCallback struct{}
 
-func (n *noopRebalanceCallback) OnAssigned(partitions []kafka.TopicPartition) {}
-func (n *noopRebalanceCallback) OnRevoked(partitions []kafka.TopicPartition)  {}
+func (n *noopRebalanceCallback) OnAssigned(ctx context.Context, partitions []kafka.TopicPartition) {}
+func (n *noopRebalanceCallback) OnRevoked(ctx context.Context, partitions []kafka.TopicPartition)  {}
 
 type trackingRebalanceCallback struct {
 	assigned []kafka.TopicPartition
 	revoked  []kafka.TopicPartition
 }
 
-func (t *trackingRebalanceCallback) OnAssigned(partitions []kafka.TopicPartition) {
+func (t *trackingRebalanceCallback) OnAssigned(ctx context.Context, partitions []kafka.TopicPartition) {
 	t.assigned = append(t.assigned, partitions...)
 }
 
-func (t *trackingRebalanceCallback) OnRevoked(partitions []kafka.TopicPartition) {
+func (t *trackingRebalanceCallback) OnRevoked(ctx context.Context, partitions []kafka.TopicPartition) {
 	t.revoked = append(t.revoked, partitions...)
 }

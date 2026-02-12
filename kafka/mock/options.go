@@ -52,3 +52,10 @@ func WithPingError(err error) Option {
 		c.pingErr = err
 	}
 }
+
+// WithGroupID sets the consumer group ID returned by GroupID().
+func WithGroupID(id string) Option {
+	return func(c *Client) {
+		c.groupID = id
+	}
+}
