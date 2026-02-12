@@ -11,6 +11,7 @@ import (
 	"github.com/hugolhafner/go-streams/logger"
 	streamsotel "github.com/hugolhafner/go-streams/otel"
 	"github.com/hugolhafner/go-streams/task"
+	"go.opentelemetry.io/otel/trace"
 )
 
 type recordWithContext struct {
@@ -121,7 +122,9 @@ func (w *partitionWorker) drain(ctx context.Context) {
 			if !ok {
 				return
 			}
-			if err := w.processRecord(r.ctx, r.record); err != nil {
+
+			recordCtx := trace.ContextWithSpan(ctx, trace.SpanFromContext(r.ctx))
+			if err := w.processRecord(recordCtx, r.record); err != nil {
 				w.logger.Error(
 					"Error processing record during drain, exiting...", "error", err, "offset", r.record.Offset,
 				)

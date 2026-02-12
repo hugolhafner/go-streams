@@ -85,9 +85,20 @@ func (r *SingleThreaded) doPoll(ctx context.Context) error {
 	tel := r.telemetry
 	pollStart := time.Now()
 
+	ctx, receiveSpan := tel.Tracer.Start(
+		ctx, "receive",
+		trace.WithSpanKind(trace.SpanKindConsumer),
+		trace.WithAttributes(
+			semconv.MessagingSystemKafka,
+			semconv.MessagingOperationTypeReceive,
+		),
+	)
 	records, err := r.consumer.Poll(ctx)
 
 	if err != nil {
+		receiveSpan.RecordError(err)
+		receiveSpan.End()
+		
 		tel.PollDuration.Record(
 			ctx, time.Since(pollStart).Seconds(), metric.WithAttributes(
 				streamsotel.AttrPollStatus.String(streamsotel.StatusError),
@@ -102,24 +113,15 @@ func (r *SingleThreaded) doPoll(ctx context.Context) error {
 		),
 	)
 
+	receiveSpan.SetAttributes(semconv.MessagingBatchMessageCount(len(records)))
+	receiveSpan.End()
+
 	if len(records) == 0 {
 		r.logger.Debug("No records received from poll")
 		return nil
 	}
 
 	r.logger.Debug("Received records", "records", len(records))
-
-	var receiveSpan trace.Span
-	ctx, receiveSpan = tel.Tracer.Start(
-		ctx, "receive",
-		trace.WithSpanKind(trace.SpanKindConsumer),
-		trace.WithAttributes(
-			semconv.MessagingSystemKafka,
-			semconv.MessagingOperationTypeReceive,
-			semconv.MessagingBatchMessageCount(len(records)),
-		),
-	)
-	defer receiveSpan.End()
 
 	for _, record := range records {
 		r.logger.Debug(
