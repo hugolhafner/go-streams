@@ -69,7 +69,7 @@ func KgoComplete() {
 
 	app, err := streams.NewApplication(
 		client,
-		builder.Build(),
+		t,
 		streams.WithLogger(klogger),
 	)
 	if err != nil {
