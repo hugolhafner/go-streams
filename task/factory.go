@@ -5,6 +5,7 @@ import (
 
 	"github.com/hugolhafner/go-streams/kafka"
 	"github.com/hugolhafner/go-streams/logger"
+	streamsotel "github.com/hugolhafner/go-streams/otel"
 	"github.com/hugolhafner/go-streams/processor"
 	"github.com/hugolhafner/go-streams/topology"
 )
@@ -19,9 +20,22 @@ type topologyTaskFactory struct {
 	topology      *topology.Topology
 	sourceByTopic map[string]topology.SourceNode
 	logger        logger.Logger
+	telemetry     *streamsotel.Telemetry
 }
 
-func NewTopologyTaskFactory(t *topology.Topology, logger logger.Logger) (Factory, error) {
+// FactoryOption configures a topologyTaskFactory
+type FactoryOption func(*topologyTaskFactory)
+
+// WithTelemetry sets the telemetry instance for tasks created by this factory
+func WithTelemetry(tel *streamsotel.Telemetry) FactoryOption {
+	return func(f *topologyTaskFactory) {
+		if tel != nil {
+			f.telemetry = tel
+		}
+	}
+}
+
+func NewTopologyTaskFactory(t *topology.Topology, logger logger.Logger, opts ...FactoryOption) (Factory, error) {
 	sourceByTopic := make(map[string]topology.SourceNode)
 	for _, sn := range t.SourceNodes() {
 		topic := sn.Topic()
@@ -39,6 +53,11 @@ func NewTopologyTaskFactory(t *topology.Topology, logger logger.Logger) (Factory
 		topology:      t,
 		sourceByTopic: sourceByTopic,
 		logger:        logger.With("component", "task-factory"),
+		telemetry:     streamsotel.Noop(),
+	}
+
+	for _, opt := range opts {
+		opt(factory)
 	}
 
 	return factory, nil
@@ -58,6 +77,7 @@ func (f *topologyTaskFactory) CreateTask(partition kafka.TopicPartition, produce
 		contexts:   make(map[string]*nodeContext),
 		sinks:      make(map[string]*sinkHandler),
 		processors: make(map[string]processor.UntypedProcessor),
+		telemetry:  f.telemetry,
 		logger: f.logger.
 			With("component", "task").
 			With("topic", partition.Topic).

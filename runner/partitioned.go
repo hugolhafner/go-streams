@@ -3,13 +3,18 @@ package runner
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"sync"
 	"time"
 
 	"github.com/hugolhafner/go-streams/kafka"
 	"github.com/hugolhafner/go-streams/logger"
+	streamsotel "github.com/hugolhafner/go-streams/otel"
 	"github.com/hugolhafner/go-streams/task"
 	"github.com/hugolhafner/go-streams/topology"
+	"go.opentelemetry.io/otel/metric"
+	semconv "go.opentelemetry.io/otel/semconv/v1.39.0"
+	"go.opentelemetry.io/otel/trace"
 )
 
 var _ Runner = (*PartitionedRunner)(nil)
@@ -36,7 +41,8 @@ type PartitionedRunner struct {
 
 	runCtx context.Context
 
-	logger logger.Logger
+	logger    logger.Logger
+	telemetry *streamsotel.Telemetry
 }
 
 // NewPartitionedRunner creates a factory function for PartitionedRunner
@@ -51,6 +57,7 @@ func NewPartitionedRunner(opts ...PartitionedOption) Factory {
 		f task.Factory,
 		consumer kafka.Consumer,
 		producer kafka.Producer,
+		telemetry *streamsotel.Telemetry,
 	) (Runner, error) {
 		l := config.Logger.With("component", "runner", "runner", "partitioned")
 
@@ -65,6 +72,7 @@ func NewPartitionedRunner(opts ...PartitionedOption) Factory {
 			paused:      make(map[kafka.TopicPartition]struct{}),
 			errCh:       make(chan error, 1),
 			logger:      l,
+			telemetry:   telemetry,
 		}, nil
 	}
 }
@@ -114,20 +122,57 @@ func (r *PartitionedRunner) Run(ctx context.Context) error {
 
 func (r *PartitionedRunner) doPoll(ctx context.Context) error {
 	// process pending before new Poll
-	r.dispatchPending()
+	r.dispatchPending(ctx)
 
+	tel := r.telemetry
+	pollStart := time.Now()
+
+	var receiveSpan trace.Span
+	ctx, receiveSpan = tel.Tracer.Start(
+		ctx, "receive",
+		trace.WithSpanKind(trace.SpanKindConsumer),
+		trace.WithAttributes(
+			semconv.MessagingSystemKafka,
+			semconv.MessagingOperationTypeReceive,
+		),
+	)
 	records, err := r.consumer.Poll(ctx)
+
 	if err != nil {
+		receiveSpan.RecordError(err)
+		receiveSpan.End()
+
+		tel.PollDuration.Record(
+			ctx, time.Since(pollStart).Seconds(), metric.WithAttributes(
+				streamsotel.AttrPollStatus.String(streamsotel.StatusError),
+			),
+		)
 		return fmt.Errorf("failed to poll: %w", err)
 	}
 
+	tel.PollDuration.Record(
+		ctx, time.Since(pollStart).Seconds(), metric.WithAttributes(
+			streamsotel.AttrPollStatus.String(streamsotel.StatusSuccess),
+		),
+	)
+
+	receiveSpan.SetAttributes(semconv.MessagingBatchMessageCount(len(records)))
+	receiveSpan.End()
+
 	if len(records) == 0 {
+		r.logger.Debug("No records received from poll")
 		return nil
 	}
 
 	r.logger.Debug("Polled records", "count", len(records))
 
 	for _, record := range records {
+		tel.MessagesConsumed.Add(
+			ctx, 1, metric.WithAttributes(
+				semconv.MessagingDestinationName(record.Topic),
+				semconv.MessagingDestinationPartitionID(strconv.FormatInt(int64(record.Partition), 10)),
+			),
+		)
 		tp := record.TopicPartition()
 
 		worker, ok := r.getWorker(tp)
@@ -149,7 +194,7 @@ func (r *PartitionedRunner) doPoll(ctx context.Context) error {
 		}
 		r.pendingMu.Unlock()
 
-		if worker.TrySubmit(record) {
+		if worker.TrySubmit(ctx, record) {
 			continue
 		}
 
@@ -171,7 +216,7 @@ func (r *PartitionedRunner) doPoll(ctx context.Context) error {
 
 // dispatchPending flushes buffered records for paused partitions via TrySubmit
 // Partitions that are fully drained are resumed.
-func (r *PartitionedRunner) dispatchPending() {
+func (r *PartitionedRunner) dispatchPending(ctx context.Context) {
 	r.pendingMu.Lock()
 	defer r.pendingMu.Unlock()
 
@@ -188,7 +233,7 @@ func (r *PartitionedRunner) dispatchPending() {
 
 		dispatched := 0
 		for _, rec := range records {
-			if !worker.TrySubmit(rec) {
+			if !worker.TrySubmit(ctx, rec) {
 				break
 			}
 			dispatched++
@@ -222,7 +267,7 @@ func (r *PartitionedRunner) getWorker(tp kafka.TopicPartition) (*partitionWorker
 	return worker, ok
 }
 
-func (r *PartitionedRunner) OnAssigned(partitions []kafka.TopicPartition) {
+func (r *PartitionedRunner) OnAssigned(ctx context.Context, partitions []kafka.TopicPartition) {
 	r.logger.Info("Partitions assigned", "partitions", partitions)
 
 	if err := r.taskManager.CreateTasks(partitions); err != nil {
@@ -230,6 +275,12 @@ func (r *PartitionedRunner) OnAssigned(partitions []kafka.TopicPartition) {
 		emitError(r.errCh, r.logger, fmt.Errorf("failed to create tasks: %w", err))
 		return
 	}
+
+	r.telemetry.TasksActive.Add(
+		ctx, int64(len(partitions)), metric.WithAttributes(
+			streamsotel.AttrRunnerType.String(streamsotel.RunnerTypePartitioned),
+		),
+	)
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -256,6 +307,7 @@ func (r *PartitionedRunner) OnAssigned(partitions []kafka.TopicPartition) {
 			r.config.WorkerShutdownTimeout,
 			r.errCh,
 			r.logger,
+			r.telemetry,
 		)
 
 		r.workers[tp] = worker
@@ -270,7 +322,7 @@ func (r *PartitionedRunner) OnAssigned(partitions []kafka.TopicPartition) {
 	}
 }
 
-func (r *PartitionedRunner) OnRevoked(partitions []kafka.TopicPartition) {
+func (r *PartitionedRunner) OnRevoked(ctx context.Context, partitions []kafka.TopicPartition) {
 	r.logger.Info("Partitions revoked", "partitions", partitions)
 
 	r.pendingMu.Lock()
@@ -320,6 +372,12 @@ func (r *PartitionedRunner) OnRevoked(partitions []kafka.TopicPartition) {
 	if err := r.taskManager.DeleteTasks(partitions); err != nil {
 		r.logger.Error("Failed to delete tasks for revoked partitions", "error", err)
 	}
+
+	r.telemetry.TasksActive.Add(
+		ctx, -int64(len(partitions)), metric.WithAttributes(
+			streamsotel.AttrRunnerType.String(streamsotel.RunnerTypePartitioned),
+		),
+	)
 
 	r.mu.Lock()
 	for _, tp := range partitions {

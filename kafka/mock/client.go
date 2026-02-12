@@ -45,6 +45,8 @@ type Client struct {
 	commitErr func() error
 	pingErr   error
 
+	groupID string
+
 	closed     bool
 	subscribed bool
 }
@@ -99,7 +101,7 @@ func (c *Client) Subscribe(topics []string, rebalanceCb kafka.RebalanceCallback)
 		if rebalanceCb != nil {
 			// Unlock during callback to prevent deadlock
 			c.mu.Unlock()
-			rebalanceCb.OnAssigned(partitions)
+			rebalanceCb.OnAssigned(context.Background(), partitions)
 			c.mu.Lock()
 		}
 	}
@@ -283,6 +285,13 @@ func (c *Client) Ping(ctx context.Context) error {
 	return c.pingErr
 }
 
+// GroupID returns the consumer group ID.
+func (c *Client) GroupID() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.groupID
+}
+
 // Close marks the client as closed.
 func (c *Client) Close() {
 	c.mu.Lock()
@@ -426,7 +435,7 @@ func (c *Client) TriggerAssign(partitions []kafka.TopicPartition) {
 	c.mu.Unlock()
 
 	if cb != nil {
-		cb.OnAssigned(partitions)
+		cb.OnAssigned(context.Background(), partitions)
 	}
 }
 
@@ -454,7 +463,7 @@ func (c *Client) TriggerRevoke(partitions []kafka.TopicPartition) {
 	c.mu.Unlock()
 
 	if cb != nil {
-		cb.OnRevoked(partitions)
+		cb.OnRevoked(context.Background(), partitions)
 	}
 }
 

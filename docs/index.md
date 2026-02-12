@@ -64,4 +64,5 @@ func main() {
 - [Serialization](serialization.md) — built-in and custom serdes
 - [Error Handling](error-handling.md) — retry, DLQ, and handler composition
 - [Runners](runners.md) — `SingleThreadedRunner` vs `PartitionedRunner`
+- [Observability](observability.md) — OpenTelemetry tracing and metrics
 - [Custom Processors](custom-processors.md) — implementing the `Processor` interface

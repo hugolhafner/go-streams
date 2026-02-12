@@ -16,6 +16,7 @@ import (
 	"github.com/hugolhafner/go-streams/kafka"
 	mockkafka "github.com/hugolhafner/go-streams/kafka/mock"
 	"github.com/hugolhafner/go-streams/logger"
+	streamsotel "github.com/hugolhafner/go-streams/otel"
 	"github.com/hugolhafner/go-streams/processor"
 	"github.com/hugolhafner/go-streams/processor/builtins"
 	"github.com/hugolhafner/go-streams/serde"
@@ -80,7 +81,7 @@ func TestPartitionedRunner_BasicProcessing(t *testing.T) {
 		WithChannelBufferSize(10),
 	)
 
-	r, err := runnerFactory(topo, factory, client, client)
+	r, err := runnerFactory(topo, factory, client, client, streamsotel.Noop())
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -132,7 +133,7 @@ func TestPartitionedRunner_MultiplePartitions(t *testing.T) {
 		WithLogger(logger.NewNoopLogger()),
 	)
 
-	r, err := runnerFactory(topo, factory, client, client)
+	r, err := runnerFactory(topo, factory, client, client, streamsotel.Noop())
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -210,7 +211,7 @@ func TestPartitionedRunner_ParallelProcessing(t *testing.T) {
 		WithLogger(logger.NewNoopLogger()),
 	)
 
-	r, err := runnerFactory(topo, factory, client, client)
+	r, err := runnerFactory(topo, factory, client, client, streamsotel.Noop())
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -295,7 +296,7 @@ func TestPartitionedRunner_OrderingWithinPartition(t *testing.T) {
 		WithLogger(logger.NewNoopLogger()),
 	)
 
-	r, err := runnerFactory(topo, factory, client, client)
+	r, err := runnerFactory(topo, factory, client, client, streamsotel.Noop())
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -376,7 +377,7 @@ func TestPartitionedRunner_ErrorHandling(t *testing.T) {
 		WithErrorHandler(errorhandler.LogAndContinue(logger.NewNoopLogger())),
 	)
 
-	r, err := runnerFactory(topo, factory, client, client)
+	r, err := runnerFactory(topo, factory, client, client, streamsotel.Noop())
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -419,7 +420,7 @@ func TestPartitionedRunner_RebalanceAssign(t *testing.T) {
 		WithLogger(logger.NewNoopLogger()),
 	)
 
-	r, err := runnerFactory(topo, factory, client, client)
+	r, err := runnerFactory(topo, factory, client, client, streamsotel.Noop())
 	require.NoError(t, err)
 
 	pr := r.(*PartitionedRunner)
@@ -474,7 +475,7 @@ func TestPartitionedRunner_RebalanceRevoke(t *testing.T) {
 		WithWorkerShutdownTimeout(2*time.Second),
 	)
 
-	r, err := runnerFactory(topo, factory, client, client)
+	r, err := runnerFactory(topo, factory, client, client, streamsotel.Noop())
 	require.NoError(t, err)
 
 	pr := r.(*PartitionedRunner)
@@ -557,7 +558,7 @@ func TestPartitionedRunner_GracefulShutdown(t *testing.T) {
 		WithDrainTimeout(5*time.Second),
 	)
 
-	r, err := runnerFactory(topo, factory, client, client)
+	r, err := runnerFactory(topo, factory, client, client, streamsotel.Noop())
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -606,7 +607,7 @@ func TestPartitionedRunner_ConfigOptions(t *testing.T) {
 		WithPollErrorBackoff(backoff.NewFixed(500*time.Millisecond)),
 	)
 
-	r, err := runnerFactory(topo, factory, client, client)
+	r, err := runnerFactory(topo, factory, client, client, streamsotel.Noop())
 	require.NoError(t, err)
 	require.NotNil(t, r)
 
@@ -633,15 +634,15 @@ func TestPartitionWorker_TrySubmit(t *testing.T) {
 	_, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	worker2 := newPartitionWorker(
-		tp, tsk, client, client, errorhandler.LogAndContinue(l), 2, 5*time.Second, errCh, l,
+		tp, tsk, client, client, errorhandler.LogAndContinue(l), 2, 5*time.Second, errCh, l, streamsotel.Noop(),
 	)
 
-	assert.True(t, worker2.TrySubmit(r1), "first TrySubmit should succeed")
-	assert.True(t, worker2.TrySubmit(r2), "second TrySubmit should succeed")
-	assert.False(t, worker2.TrySubmit(r3), "third TrySubmit should fail (channel full)")
+	assert.True(t, worker2.TrySubmit(context.Background(), r1), "first TrySubmit should succeed")
+	assert.True(t, worker2.TrySubmit(context.Background(), r2), "second TrySubmit should succeed")
+	assert.False(t, worker2.TrySubmit(context.Background(), r3), "third TrySubmit should fail (channel full)")
 
 	worker2.Stop()
-	assert.False(t, worker2.TrySubmit(r1), "TrySubmit on stopped worker should return false")
+	assert.False(t, worker2.TrySubmit(context.Background(), r1), "TrySubmit on stopped worker should return false")
 }
 
 func TestPartitionedRunner_BackpressurePausesSlowPartition(t *testing.T) {
@@ -703,7 +704,7 @@ func TestPartitionedRunner_BackpressurePausesSlowPartition(t *testing.T) {
 		WithChannelBufferSize(2),
 	)
 
-	r, err := runnerFactory(topo, factory, client, client)
+	r, err := runnerFactory(topo, factory, client, client, streamsotel.Noop())
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -783,7 +784,7 @@ func TestPartitionedRunner_BackpressureResumesAfterDrain(t *testing.T) {
 		WithChannelBufferSize(1),
 	)
 
-	r, err := runnerFactory(topo, factory, client, client)
+	r, err := runnerFactory(topo, factory, client, client, streamsotel.Noop())
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -876,7 +877,7 @@ func TestPartitionedRunner_PendingClearedOnRevoke(t *testing.T) {
 		WithWorkerShutdownTimeout(1*time.Second),
 	)
 
-	r, err := runnerFactory(topo, factory, client, client)
+	r, err := runnerFactory(topo, factory, client, client, streamsotel.Noop())
 	require.NoError(t, err)
 
 	pr := r.(*PartitionedRunner)
@@ -962,7 +963,7 @@ func TestPartitionedRunner_OrderingPreservedWithBackpressure(t *testing.T) {
 		WithChannelBufferSize(2),
 	)
 
-	r, err := runnerFactory(topo, factory, client, client)
+	r, err := runnerFactory(topo, factory, client, client, streamsotel.Noop())
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -1006,7 +1007,7 @@ func TestPartitionWorker_StopSkipsDrain(t *testing.T) {
 	errCh := make(chan error, 1)
 
 	worker := newPartitionWorker(
-		tp, tsk, client, client, errorhandler.LogAndContinue(l), 10, 5*time.Second, errCh, l,
+		tp, tsk, client, client, errorhandler.LogAndContinue(l), 10, 5*time.Second, errCh, l, streamsotel.Noop(),
 	)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -1017,7 +1018,7 @@ func TestPartitionWorker_StopSkipsDrain(t *testing.T) {
 	for i := 0; i < 5; i++ {
 		r := mockkafka.SimpleRecord(fmt.Sprintf("k%d", i), fmt.Sprintf("v%d", i))
 		r.Topic = "input"
-		assert.True(t, worker.TrySubmit(r))
+		assert.True(t, worker.TrySubmit(context.Background(), r))
 	}
 
 	// Stop (revocation path) — should return quickly without draining
@@ -1040,7 +1041,7 @@ func TestPartitionWorker_ContextCancelDrains(t *testing.T) {
 	errCh := make(chan error, 1)
 
 	worker := newPartitionWorker(
-		tp, tsk, client, client, errorhandler.LogAndContinue(l), 10, 5*time.Second, errCh, l,
+		tp, tsk, client, client, errorhandler.LogAndContinue(l), 10, 5*time.Second, errCh, l, streamsotel.Noop(),
 	)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -1050,7 +1051,7 @@ func TestPartitionWorker_ContextCancelDrains(t *testing.T) {
 	for i := 0; i < 3; i++ {
 		r := mockkafka.SimpleRecord(fmt.Sprintf("k%d", i), fmt.Sprintf("v%d", i))
 		r.Topic = "input"
-		assert.True(t, worker.TrySubmit(r))
+		assert.True(t, worker.TrySubmit(context.Background(), r))
 	}
 
 	// Let the worker process at least one record
@@ -1104,7 +1105,7 @@ func TestPartitionWorker_DrainTimeoutRespected(t *testing.T) {
 
 	// Short drain timeout — 200ms
 	worker := newPartitionWorker(
-		tp, tsk, client, client, errorhandler.LogAndContinue(l), 10, 200*time.Millisecond, errCh, l,
+		tp, tsk, client, client, errorhandler.LogAndContinue(l), 10, 200*time.Millisecond, errCh, l, streamsotel.Noop(),
 	)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -1113,7 +1114,7 @@ func TestPartitionWorker_DrainTimeoutRespected(t *testing.T) {
 	// Submit a record that will block
 	r := mockkafka.SimpleRecord("block", "v1")
 	r.Topic = "input"
-	assert.True(t, worker.TrySubmit(r))
+	assert.True(t, worker.TrySubmit(ctx, r))
 
 	// Let the worker pick up the record
 	time.Sleep(50 * time.Millisecond)

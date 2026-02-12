@@ -8,6 +8,7 @@ nav:
   - Serialization: serialization.md
   - Error Handling: error-handling.md
   - Runners: runners.md
+  - Observability: observability.md
   - Custom Processors: custom-processors.md
 
 plugins:

@@ -2,7 +2,6 @@ package runner
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -10,8 +9,15 @@ import (
 	"github.com/hugolhafner/go-streams/errorhandler"
 	"github.com/hugolhafner/go-streams/kafka"
 	"github.com/hugolhafner/go-streams/logger"
+	streamsotel "github.com/hugolhafner/go-streams/otel"
 	"github.com/hugolhafner/go-streams/task"
+	"go.opentelemetry.io/otel/trace"
 )
+
+type recordWithContext struct {
+	ctx    context.Context
+	record kafka.ConsumerRecord
+}
 
 // partitionWorker processes records for a single partition in its own goroutine
 type partitionWorker struct {
@@ -21,8 +27,9 @@ type partitionWorker struct {
 	producer     kafka.Producer
 	errorHandler errorhandler.Handler
 	logger       logger.Logger
+	telemetry    *streamsotel.Telemetry
 
-	recordCh     chan kafka.ConsumerRecord
+	recordCh     chan recordWithContext
 	doneCh       chan struct{}
 	stopCh       chan struct{}
 	errCh        chan error
@@ -43,6 +50,7 @@ func newPartitionWorker(
 	drainTimeout time.Duration,
 	errCh chan error,
 	l logger.Logger,
+	tel *streamsotel.Telemetry,
 ) *partitionWorker {
 	return &partitionWorker{
 		partition:    partition,
@@ -50,12 +58,13 @@ func newPartitionWorker(
 		consumer:     consumer,
 		producer:     producer,
 		errorHandler: errorHandler,
+		telemetry:    tel,
 		logger: l.With(
 			"component", "partition-worker",
 			"topic", partition.Topic,
 			"partition", partition.Partition,
 		),
-		recordCh:     make(chan kafka.ConsumerRecord, bufferSize),
+		recordCh:     make(chan recordWithContext, bufferSize),
 		doneCh:       make(chan struct{}),
 		stopCh:       make(chan struct{}),
 		errCh:        errCh,
@@ -87,14 +96,14 @@ func (w *partitionWorker) run(ctx context.Context) {
 			w.logger.Debug("Stop signal received, returning without drain")
 			return
 
-		case rec, ok := <-w.recordCh:
+		case r, ok := <-w.recordCh:
 			if !ok {
 				w.logger.Debug("Record channel closed")
 				return
 			}
 
-			if err := w.processRecord(ctx, rec); err != nil {
-				w.logger.Error("Error processing record", "error", err, "offset", rec.Offset)
+			if err := w.processRecord(r.ctx, r.record); err != nil {
+				w.logger.Error("Error processing record", "error", err, "offset", r.record.Offset)
 				emitError(w.errCh, w.logger, fmt.Errorf("worker %v: fatal processing error: %w", w.partition, err))
 				return
 			}
@@ -109,12 +118,16 @@ func (w *partitionWorker) drain(ctx context.Context) {
 		case <-ctx.Done():
 			w.logger.Warn("Drain context cancelled, stopping drain")
 			return
-		case rec, ok := <-w.recordCh:
+		case r, ok := <-w.recordCh:
 			if !ok {
 				return
 			}
-			if err := w.processRecord(ctx, rec); err != nil {
-				w.logger.Error("Error processing record during drain, exiting...", "error", err, "offset", rec.Offset)
+
+			recordCtx := trace.ContextWithSpan(ctx, trace.SpanFromContext(r.ctx))
+			if err := w.processRecord(recordCtx, r.record); err != nil {
+				w.logger.Error(
+					"Error processing record during drain, exiting...", "error", err, "offset", r.record.Offset,
+				)
 				emitError(
 					w.errCh, w.logger,
 					fmt.Errorf("worker %v: fatal processing error during drain: %w", w.partition, err),
@@ -129,69 +142,7 @@ func (w *partitionWorker) drain(ctx context.Context) {
 
 // processRecord handles a single record with error handling and marking
 func (w *partitionWorker) processRecord(ctx context.Context, rec kafka.ConsumerRecord) error {
-	ec := errorhandler.NewErrorContext(rec, nil)
-	var lastErr error
-
-	for {
-		err := w.task.Process(ctx, rec)
-		if err == nil {
-			w.consumer.MarkRecords(rec)
-			w.logger.Debug("Record processed successfully", "offset", rec.Offset)
-			return nil
-		}
-
-		if pErr, ok := task.AsProcessError(err); ok {
-			ec = ec.WithNodeName(pErr.Node)
-		}
-		ec = ec.WithError(err)
-		lastErr = err
-
-		action := w.errorHandler.Handle(ctx, ec)
-		switch action.Type() {
-		case errorhandler.ActionTypeFail:
-			w.logger.Error(
-				"Record processing failed, stopping worker",
-				"error", err,
-				"offset", rec.Offset,
-			)
-			return err
-
-		case errorhandler.ActionTypeRetry:
-			ec = ec.IncrementAttempt()
-			w.logger.Debug("Retrying record", "attempt", ec.Attempt, "offset", rec.Offset)
-			continue
-
-		case errorhandler.ActionTypeSendToDLQ:
-			a, ok := action.(errorhandler.ActionSendToDLQ)
-			if !ok {
-				return errors.New("invalid action type, expected ActionSendToDLQ")
-			}
-
-			if err := sendToDLQ(ctx, w.producer, rec, ec, a.Topic()); err != nil {
-				w.logger.Error(
-					"Failed to send record to DLQ.",
-					"error", err,
-					"key", string(rec.Key),
-					"original_topic", rec.Topic,
-					"original_partition", rec.Partition,
-					"original_offset", rec.Offset,
-				)
-				return err
-			}
-
-			w.consumer.MarkRecords(rec)
-			return nil
-
-		case errorhandler.ActionTypeContinue:
-			w.consumer.MarkRecords(rec)
-			w.logger.Debug("Skipping failed record", "offset", rec.Offset)
-			return nil
-
-		default:
-			w.logger.Error("Unknown error handler action, failing", "action", action.Type().String(), "error", lastErr)
-			return lastErr
-		}
-	}
+	return processRecordWithRetry(ctx, rec, w.task, w.consumer, w.producer, w.errorHandler, w.telemetry, w.logger)
 }
 
 // Submit adds a record to the worker's processing queue
@@ -208,13 +159,13 @@ func (w *partitionWorker) Submit(ctx context.Context, record kafka.ConsumerRecor
 		return ctx.Err()
 	case <-w.stopCh:
 		return fmt.Errorf("worker for partition %v is stopping", w.partition)
-	case w.recordCh <- record:
+	case w.recordCh <- recordWithContext{ctx: ctx, record: record}:
 		return nil
 	}
 }
 
 // TrySubmit non blocking submit to processing queue, true if submitted, false if full or stopped
-func (w *partitionWorker) TrySubmit(record kafka.ConsumerRecord) bool {
+func (w *partitionWorker) TrySubmit(ctx context.Context, record kafka.ConsumerRecord) bool {
 	w.mu.RLock()
 	if w.stopped {
 		w.mu.RUnlock()
@@ -225,7 +176,7 @@ func (w *partitionWorker) TrySubmit(record kafka.ConsumerRecord) bool {
 	select {
 	case <-w.stopCh:
 		return false
-	case w.recordCh <- record:
+	case w.recordCh <- recordWithContext{ctx: ctx, record: record}:
 		return true
 	default:
 		return false
