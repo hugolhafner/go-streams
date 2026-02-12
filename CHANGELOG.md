@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.2.0](https://github.com/hugolhafner/go-streams/compare/v0.1.0...v0.2.0) (2026-02-12)
+
+
+### Features
+
+* **errorhandler:** add custom error handling support ([#14](https://github.com/hugolhafner/go-streams/issues/14)) ([46052cb](https://github.com/hugolhafner/go-streams/commit/46052cb06b8badf04da3a54d34e810c4ec52a384))
+* observability ([#26](https://github.com/hugolhafner/go-streams/issues/26)) ([31799cb](https://github.com/hugolhafner/go-streams/commit/31799cb341e58daba99329712394d4ddeb4d2a74))
+* **processor:** add error handling support ([#13](https://github.com/hugolhafner/go-streams/issues/13)) ([3b3de81](https://github.com/hugolhafner/go-streams/commit/3b3de81f7d85944987d4d2affbfb1dab3808aecd))
+* **runner:** add partitioned runner ([#24](https://github.com/hugolhafner/go-streams/issues/24)) ([50432b7](https://github.com/hugolhafner/go-streams/commit/50432b783ba53b7a924d6e204d51033bc5ae4ae4))
+
+
+### Bug Fixes
+
+* e2e ([#27](https://github.com/hugolhafner/go-streams/issues/27)) ([d120cdf](https://github.com/hugolhafner/go-streams/commit/d120cdf476680d76bd38fea8ed0c9cd3ea822bbd))
+
 ## [0.1.0](https://github.com/hugolhafner/go-streams/compare/v0.0.1...v0.1.0) (2026-01-27)
 
 
