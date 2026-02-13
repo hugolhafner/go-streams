@@ -41,11 +41,14 @@ runner.NewSingleThreadedRunner(opts ...SingleThreadedOption) Factory
 
 ### Options
 
-| Option | Description |
-|--------|-------------|
-| `runner.WithLogger(l)` | Set the logger |
-| `runner.WithErrorHandler(h)` | Set the error handler (default: `LogAndContinue`) |
-| `runner.WithPollErrorBackoff(b)` | Backoff strategy for poll errors (default: 1s fixed) |
+| Option                                 | Description                                                                     |
+|----------------------------------------|---------------------------------------------------------------------------------|
+| `runner.WithLogger(l)`                 | Set the logger                                                                  |
+| `runner.WithErrorHandler(h)`           | Set the error handler (default: `LogAndContinue`)                               |
+| `runner.WithProcessingErrorHandler(h)` | Handler for processing errors (default: nil, falls back to `ErrorHandler`)      |
+| `runner.WithSerdeErrorHandler(h)`      | Handler for deserialization errors (default: nil, falls back to `ErrorHandler`) |
+| `runner.WithProductionErrorHandler(h)` | Handler for production/sink errors (default: nil, falls back to `ErrorHandler`) |
+| `runner.WithPollErrorBackoff(b)`       | Backoff strategy for poll errors (default: 1s fixed)                            |
 
 ## PartitionedRunner
 
@@ -70,14 +73,17 @@ runner.NewPartitionedRunner(opts ...PartitionedOption) Factory
 
 All `SingleThreadedRunner` options are also available, plus:
 
-| Option | Default | Description |
-|--------|---------|-------------|
-| `runner.WithLogger(l)` | noop | Set the logger |
-| `runner.WithErrorHandler(h)` | `LogAndContinue` | Set the error handler |
-| `runner.WithPollErrorBackoff(b)` | 1s fixed | Backoff for poll errors |
-| `runner.WithChannelBufferSize(n)` | 100 | Buffer size for partition record channels |
-| `runner.WithWorkerShutdownTimeout(d)` | 30s | Max time a single worker spends draining on shutdown |
-| `runner.WithDrainTimeout(d)` | 60s | Max time to wait for all workers to finish draining |
+| Option                                 | Default          | Description                                                       |
+|----------------------------------------|------------------|-------------------------------------------------------------------|
+| `runner.WithLogger(l)`                 | noop             | Set the logger                                                    |
+| `runner.WithErrorHandler(h)`           | `LogAndContinue` | Set the error handler                                             |
+| `runner.WithProcessingErrorHandler(h)` | nil              | Handler for processing errors (falls back to `ErrorHandler`)      |
+| `runner.WithSerdeErrorHandler(h)`      | nil              | Handler for deserialization errors (falls back to `ErrorHandler`) |
+| `runner.WithProductionErrorHandler(h)` | nil              | Handler for production/sink errors (falls back to `ErrorHandler`) |
+| `runner.WithPollErrorBackoff(b)`       | 1s fixed         | Backoff for poll errors                                           |
+| `runner.WithChannelBufferSize(n)`      | 100              | Buffer size for partition record channels                         |
+| `runner.WithWorkerShutdownTimeout(d)`  | 30s              | Max time a single worker spends draining on shutdown              |
+| `runner.WithDrainTimeout(d)`           | 60s              | Max time to wait for all workers to finish draining               |
 
 ### Backpressure
 

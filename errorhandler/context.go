@@ -20,6 +20,9 @@ type ErrorContext struct {
 	// NodeName is the name of the topology node where the error occurred.
 	// empty if not during node processing (eg. serialization/deserialization).
 	NodeName string
+
+	// Phase indicates where in the pipeline the error occurred
+	Phase ErrorPhase
 }
 
 func NewErrorContext(record kafka.ConsumerRecord, err error) ErrorContext {
@@ -42,6 +45,11 @@ func (ec ErrorContext) WithAttempt(attempt int) ErrorContext {
 
 func (ec ErrorContext) WithNodeName(name string) ErrorContext {
 	ec.NodeName = name
+	return ec
+}
+
+func (ec ErrorContext) WithPhase(phase ErrorPhase) ErrorContext {
+	ec.Phase = phase
 	return ec
 }
 

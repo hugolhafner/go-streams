@@ -49,12 +49,12 @@ func (t *TopologyTask) processSafe(ctx context.Context, rec kafka.ConsumerRecord
 
 	key, err := t.source.KeySerde().Deserialise(rec.Topic, rec.Key)
 	if err != nil {
-		return fmt.Errorf("deserialize key: %w", err)
+		return NewSerdeError(fmt.Errorf("deserialize key: %w", err))
 	}
 
 	value, err := t.source.ValueSerde().Deserialise(rec.Topic, rec.Value)
 	if err != nil {
-		return fmt.Errorf("deserialize value: %w", err)
+		return NewSerdeError(fmt.Errorf("deserialize value: %w", err))
 	}
 
 	t.logger.Debug(
@@ -76,6 +76,9 @@ func (t *TopologyTask) processSafe(ctx context.Context, rec kafka.ConsumerRecord
 	for _, childName := range children {
 		t.logger.Debug("Forwarding record to child node", "node", childName)
 		if err := t.processAt(ctx, childName, untypedRec); err != nil {
+			if _, ok := AsProductionError(err); ok {
+				return err // don't double wrap
+			}
 			return NewProcessError(err, childName)
 		}
 	}
@@ -173,6 +176,7 @@ func (t *TopologyTask) init() (*TopologyTask, error) {
 	for name, node := range t.topology.Nodes() {
 		if sn, ok := node.(topology.SinkNode); ok {
 			t.sinks[name] = &sinkHandler{
+				name:      name,
 				node:      sn,
 				producer:  t.producer,
 				telemetry: t.telemetry,

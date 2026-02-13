@@ -37,7 +37,7 @@ func sendToDLQ(
 	value := make([]byte, len(record.Value))
 	copy(value, record.Value)
 
-	headers := make([]kafka.Header, len(record.Headers), len(record.Headers)+7)
+	headers := make([]kafka.Header, len(record.Headers), len(record.Headers)+10)
 	for i, h := range record.Headers {
 		vCopy := make([]byte, len(h.Value))
 		copy(vCopy, h.Value)
@@ -51,6 +51,7 @@ func sendToDLQ(
 		kafka.Header{Key: "x-original-offset", Value: []byte(fmt.Sprintf("%d", record.Offset))},
 		kafka.Header{Key: "x-error-timestamp", Value: []byte(time.Now().Format(time.RFC3339))},
 		kafka.Header{Key: "x-error-attempt", Value: []byte(fmt.Sprintf("%d", ec.Attempt))},
+		kafka.Header{Key: "x-error-phase", Value: []byte(ec.Phase.String())},
 	)
 
 	if ec.Error != nil {
@@ -126,10 +127,22 @@ func processRecordWithRetry(
 			return nil
 		}
 
-		if pErr, ok := task.AsProcessError(err); ok {
-			ec = ec.WithNodeName(pErr.Node)
+		var phase errorhandler.ErrorPhase
+		var nodeName string
+
+		if _, ok := task.AsSerdeError(err); ok {
+			phase = errorhandler.PhaseSerde
+		} else if pErr, ok := task.AsProductionError(err); ok {
+			phase = errorhandler.PhaseProduction
+			nodeName = pErr.Node
+		} else if pErr, ok := task.AsProcessError(err); ok {
+			phase = errorhandler.PhaseProcessing
+			nodeName = pErr.Node
+		} else {
+			phase = errorhandler.PhaseProcessing
 		}
-		ec = ec.WithError(err)
+
+		ec = ec.WithError(err).WithNodeName(nodeName).WithPhase(phase)
 		lastErr = err
 
 		span.RecordError(err)
@@ -137,6 +150,7 @@ func processRecordWithRetry(
 			ctx, 1, metric.WithAttributes(
 				semconv.MessagingDestinationName(rec.Topic),
 				streamsotel.AttrErrorNode.String(ec.NodeName),
+				streamsotel.AttrErrorPhase.String(ec.Phase.String()),
 			),
 		)
 
@@ -146,6 +160,7 @@ func processRecordWithRetry(
 			ctx, 1, metric.WithAttributes(
 				streamsotel.AttrErrorAction.String(action.Type().String()),
 				semconv.MessagingDestinationName(rec.Topic),
+				streamsotel.AttrErrorPhase.String(ec.Phase.String()),
 			),
 		)
 

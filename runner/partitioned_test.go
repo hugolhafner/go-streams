@@ -634,7 +634,8 @@ func TestPartitionWorker_TrySubmit(t *testing.T) {
 	_, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	worker2 := newPartitionWorker(
-		tp, tsk, client, client, errorhandler.LogAndContinue(l), 2, 5*time.Second, errCh, l, streamsotel.Noop(),
+		tp, tsk, client, client, errorhandler.LogAndContinue(l), 2, 5*time.Second, errCh, l,
+		streamsotel.Noop(),
 	)
 
 	assert.True(t, worker2.TrySubmit(context.Background(), r1), "first TrySubmit should succeed")
@@ -1007,7 +1008,8 @@ func TestPartitionWorker_StopSkipsDrain(t *testing.T) {
 	errCh := make(chan error, 1)
 
 	worker := newPartitionWorker(
-		tp, tsk, client, client, errorhandler.LogAndContinue(l), 10, 5*time.Second, errCh, l, streamsotel.Noop(),
+		tp, tsk, client, client, errorhandler.LogAndContinue(l), 10, 5*time.Second, errCh, l,
+		streamsotel.Noop(),
 	)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -1041,7 +1043,8 @@ func TestPartitionWorker_ContextCancelDrains(t *testing.T) {
 	errCh := make(chan error, 1)
 
 	worker := newPartitionWorker(
-		tp, tsk, client, client, errorhandler.LogAndContinue(l), 10, 5*time.Second, errCh, l, streamsotel.Noop(),
+		tp, tsk, client, client, errorhandler.LogAndContinue(l), 10, 5*time.Second, errCh, l,
+		streamsotel.Noop(),
 	)
 
 	ctx, cancel := context.WithCancel(context.Background())

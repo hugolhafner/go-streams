@@ -16,6 +16,7 @@ import (
 )
 
 type sinkHandler struct {
+	name      string
 	node      topology.SinkNode
 	producer  kafka.Producer
 	telemetry *streamsotel.Telemetry
@@ -26,12 +27,12 @@ func (s *sinkHandler) Process(ctx context.Context, rec *record.UntypedRecord) er
 
 	key, err := s.node.KeySerde().Serialise(topic, rec.Key)
 	if err != nil {
-		return fmt.Errorf("serialize key: %w", err)
+		return NewSerdeError(fmt.Errorf("serialize key for topic %s: %w", topic, err))
 	}
 
 	value, err := s.node.ValueSerde().Serialise(topic, rec.Value)
 	if err != nil {
-		return fmt.Errorf("serialize value: %w", err)
+		return NewSerdeError(fmt.Errorf("serialize value for topic %s: %w", topic, err))
 	}
 
 	tel := s.telemetry
@@ -64,7 +65,7 @@ func (s *sinkHandler) Process(ctx context.Context, rec *record.UntypedRecord) er
 			),
 		)
 		span.SetStatus(codes.Error, sendErr.Error())
-		return fmt.Errorf("produce to %s: %w", topic, sendErr)
+		return NewProductionError(fmt.Errorf("produce to %s: %w", topic, sendErr), s.name)
 	}
 
 	tel.ProduceDuration.Record(
