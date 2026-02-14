@@ -117,7 +117,7 @@ func TestPhaseRouter_UnknownPhaseFallsBackToDefault(t *testing.T) {
 	assert.IsType(t, errorhandler.ActionContinue{}, action)
 }
 
-func TestPhaseRouter_NilDefaultUsessilentFail(t *testing.T) {
+func TestPhaseRouter_NilDefaultUsesSilentFail(t *testing.T) {
 	router := errorhandler.NewPhaseRouter(nil, nil, nil, nil)
 
 	action := router.Handle(context.Background(), ecWithPhase(errorhandler.PhaseProcessing))

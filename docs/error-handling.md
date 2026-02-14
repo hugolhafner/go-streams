@@ -40,12 +40,12 @@ type ErrorContext struct {
 
 Every error is classified into a phase that indicates where in the pipeline it occurred:
 
-| Phase             | Value | Description                                          |
-|-------------------|-------|------------------------------------------------------|
-| `PhaseUnknown`    | `0`   | Zero value - uninitialized phase                     |
-| `PhaseSerde`      | `1`   | Error during key/value deserialization at the source |
-| `PhaseProcessing` | `2`   | Error during processor execution                     |
-| `PhaseProduction` | `3`   | Error during sink serialization or Kafka production  |
+| Phase             | Value | Description                                              |
+|-------------------|-------|----------------------------------------------------------|
+| `PhaseUnknown`    | `0`   | Zero value - uninitialized phase                         |
+| `PhaseSerde`      | `1`   | Error during key/value serialization or deserialization. |
+| `PhaseProcessing` | `2`   | Error during processor execution                         |
+| `PhaseProduction` | `3`   | Error during sink serialization or Kafka production      |
 
 The phase is set automatically by the runner and available on `ErrorContext.Phase`. You can use `phase.String()` to
 get a human-readable name (e.g. `"unknown"`, `"serde"`, `"processing"`, `"production"`).
