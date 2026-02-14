@@ -42,12 +42,13 @@ Every error is classified into a phase that indicates where in the pipeline it o
 
 | Phase             | Value | Description                                          |
 |-------------------|-------|------------------------------------------------------|
-| `PhaseSerde`      | `0`   | Error during key/value deserialization at the source |
-| `PhaseProcessing` | `1`   | Error during processor execution                     |
-| `PhaseProduction` | `2`   | Error during sink serialization or Kafka production  |
+| `PhaseUnknown`    | `0`   | Zero value — uninitialized phase                     |
+| `PhaseSerde`      | `1`   | Error during key/value deserialization at the source |
+| `PhaseProcessing` | `2`   | Error during processor execution                     |
+| `PhaseProduction` | `3`   | Error during sink serialization or Kafka production  |
 
-The phase is set automatically by the runner and available on `ErrorContext.Phase`. You can use `phase.String()` to 
-get a human-readable name (e.g. `"serde"`, `"processing"`, `"production"`).
+The phase is set automatically by the runner and available on `ErrorContext.Phase`. You can use `phase.String()` to
+get a human-readable name (e.g. `"unknown"`, `"serde"`, `"processing"`, `"production"`).
 
 ## Built-in Handlers
 
@@ -150,12 +151,13 @@ The default error handler is `LogAndContinue` with a noop logger.
 
 ## Phase-Specific Error Handlers
 
-By default, `WithErrorHandler` handles errors from all phases. You can optionally set separate handlers for serde and production errors:
+By default, `WithErrorHandler` handles errors from all phases. You can optionally set separate handlers per phase:
 
 ```go
 app.RunWith(ctx, runner.NewPartitionedRunner(
     runner.WithErrorHandler(defaultHandler),                          // fallback for all phases
     runner.WithSerdeErrorHandler(poisonPillHandler),                  // serialization / deserialization errors only
+    runner.WithProcessingErrorHandler(processingHandler),             // processor execution errors only
     runner.WithProductionErrorHandler(productionHandler),             // production/sink errors only
 ))
 ```

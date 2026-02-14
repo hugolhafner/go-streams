@@ -171,7 +171,7 @@ All metrics are registered under the `github.com/hugolhafner/go-streams` instrum
 | `stream.produce.status`              | produce.duration                                                                                        | `success`, `error`                             |
 | `stream.error.action`                | error_handler.actions                                                                                   | `continue`, `retry`, `fail`, `send_to_dlq`     |
 | `stream.error.node`                  | errors                                                                                                  | Node name where the error occurred             |
-| `stream.error.phase`                 | errors, error_handler.actions                                                                           | `unknown`, `deserialization`, `processing`, `production` |
+| `stream.error.phase`                 | errors, error_handler.actions                                                                           | `unknown`, `serde`, `processing`, `production` |
 | `stream.runner.type`                 | tasks.active                                                                                            | `single_threaded`, `partitioned`               |
 
 ### Process Status Values
@@ -211,4 +211,4 @@ When a record is sent to a dead letter queue, the following headers are added:
 | `x-error-attempt` | Number of processing attempts |
 | `x-error-message` | Error message (if present) |
 | `x-error-node` | Topology node name (if present) |
-| `x-error-phase` | Error phase: `deserialization`, `processing`, or `production` (if known) |
+| `x-error-phase` | Error phase: `unknown`, `serde`, `processing`, or `production` (if known) |

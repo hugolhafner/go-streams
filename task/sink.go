@@ -55,25 +55,25 @@ func (s *sinkHandler) Process(ctx context.Context, rec *record.UntypedRecord) er
 	tel.Propagator.Inject(ctx, carrier)
 
 	produceStart := time.Now()
-	sendErr := s.producer.Send(ctx, topic, key, value, headers)
+	produceStatus := streamsotel.StatusSuccess
 
-	if sendErr != nil {
+	defer func() {
 		tel.ProduceDuration.Record(
 			ctx, time.Since(produceStart).Seconds(), metric.WithAttributes(
 				semconv.MessagingDestinationName(topic),
-				streamsotel.AttrProduceStatus.String(streamsotel.StatusError),
+				streamsotel.AttrProduceStatus.String(produceStatus),
 			),
 		)
-		span.SetStatus(codes.Error, sendErr.Error())
-		return NewProductionError(fmt.Errorf("produce to %s: %w", topic, sendErr), s.name)
+	}()
+
+	produceErr := s.producer.Send(ctx, topic, key, value, headers)
+	if produceErr != nil {
+		span.RecordError(produceErr)
+		span.SetStatus(codes.Error, produceErr.Error())
+		produceStatus = streamsotel.StatusError
+		return NewProductionError(fmt.Errorf("produce to %s: %w", topic, produceErr), s.name)
 	}
 
-	tel.ProduceDuration.Record(
-		ctx, time.Since(produceStart).Seconds(), metric.WithAttributes(
-			semconv.MessagingDestinationName(topic),
-			streamsotel.AttrProduceStatus.String(streamsotel.StatusSuccess),
-		),
-	)
 	tel.MessagesProduced.Add(
 		ctx, 1, metric.WithAttributes(
 			semconv.MessagingDestinationName(topic),

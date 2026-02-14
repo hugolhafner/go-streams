@@ -17,6 +17,7 @@ func TestErrorPhase_String(t *testing.T) {
 		phase    errorhandler.ErrorPhase
 		expected string
 	}{
+		{errorhandler.PhaseUnknown, "unknown"},
 		{errorhandler.PhaseSerde, "serde"},
 		{errorhandler.PhaseProcessing, "processing"},
 		{errorhandler.PhaseProduction, "production"},
@@ -88,6 +89,7 @@ func TestPhaseRouter_FallsBackToDefaultHandler(t *testing.T) {
 	)
 
 	tests := []errorhandler.ErrorPhase{
+		errorhandler.PhaseUnknown,
 		errorhandler.PhaseSerde,
 		errorhandler.PhaseProcessing,
 		errorhandler.PhaseProduction,
@@ -143,7 +145,12 @@ func TestPhaseRouter_SpecificHandlerTakesPrecedenceOverDefault(t *testing.T) {
 		assert.IsType(t, errorhandler.ActionContinue{}, action)
 	})
 
-	t.Run("unknown gets default handler", func(t *testing.T) {
+	t.Run("unknown phase gets default handler", func(t *testing.T) {
+		action := router.Handle(context.Background(), ecWithPhase(errorhandler.PhaseUnknown))
+		assert.IsType(t, errorhandler.ActionFail{}, action)
+	})
+
+	t.Run("unrecognized phase gets default handler", func(t *testing.T) {
 		action := router.Handle(context.Background(), ecWithPhase(errorhandler.ErrorPhase(42)))
 		assert.IsType(t, errorhandler.ActionFail{}, action)
 	})

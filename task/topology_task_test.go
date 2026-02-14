@@ -873,6 +873,56 @@ func TestTopologyTask_MultiPartitionMarkAndCommit(t *testing.T) {
 	client.AssertCommittedOffset(t, tp1, 11)
 }
 
+// failingSerializer always returns an error on serialize
+type failingSerializer struct{}
+
+func (f failingSerializer) Serialise(_ string, _ any) ([]byte, error) {
+	return nil, errors.New("intentional serialization failure")
+}
+
+func TestTopologyTask_SinkSerdeError_NotWrappedAsProcessError(t *testing.T) {
+	// Verify that a SerdeError from sink serialization is NOT wrapped in ProcessError
+	topo := topology.New()
+	topo.AddSource(
+		"source", "input",
+		serde.ToUntypedDeserialser(serde.String()),
+		serde.ToUntypedDeserialser(serde.String()),
+	)
+
+	var supplier processor.Supplier[string, string, string, string] = func() processor.Processor[string, string, string, string] {
+		return builtins.NewPassthroughProcessor[string, string]()
+	}
+	topo.AddProcessor("proc", supplier.ToUntyped(), "source")
+	topo.AddSink(
+		"sink", "output",
+		failingSerializer{}, // key serializer that always fails
+		serde.ToUntypedSerialiser(serde.String()),
+		"proc",
+	)
+
+	factory, err := task.NewTopologyTaskFactory(topo, logger.NewNoopLogger())
+	require.NoError(t, err)
+
+	producer := mockkafka.NewClient()
+	tp := kafka.TopicPartition{Topic: "input", Partition: 0}
+
+	tsk, err := factory.CreateTask(tp, producer)
+	require.NoError(t, err)
+	defer func() { _ = tsk.Close() }()
+
+	rec := newTestRecord("input", 0, 0, "key", "value")
+	err = tsk.Process(context.Background(), rec)
+
+	require.Error(t, err)
+
+	// Should be a SerdeError, NOT a ProcessError
+	_, isSerde := task.AsSerdeError(err)
+	require.True(t, isSerde, "expected SerdeError but got %T", err)
+
+	_, isProcess := task.AsProcessError(err)
+	require.False(t, isProcess, "SerdeError should not be wrapped as ProcessError")
+}
+
 func TestTopologyTask_CommitError(t *testing.T) {
 	// Test that commit errors are properly propagated and marked records preserved
 

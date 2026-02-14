@@ -98,6 +98,11 @@ func TestErrorContext_WithAttempt(t *testing.T) {
 	require.Equal(t, 5, ec.Attempt)
 }
 
+func TestErrorContext_DefaultPhaseIsUnknown(t *testing.T) {
+	ec := errorhandler.NewErrorContext(kafka.ConsumerRecord{}, nil)
+	require.Equal(t, errorhandler.PhaseUnknown, ec.Phase)
+}
+
 func TestErrorContext_WithPhase(t *testing.T) {
 	ec := errorhandler.NewErrorContext(kafka.ConsumerRecord{}, nil)
 

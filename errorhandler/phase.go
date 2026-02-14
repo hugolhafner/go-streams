@@ -8,13 +8,16 @@ import (
 type ErrorPhase int
 
 const (
-	PhaseSerde      ErrorPhase = iota // error during key/value serialization or deserialization
+	PhaseUnknown    ErrorPhase = iota // zero value — uninitialized phase
+	PhaseSerde                        // error during key/value serialization or deserialization
 	PhaseProcessing                   // error during processor execution
 	PhaseProduction                   // error during sink production
 )
 
 func (p ErrorPhase) String() string {
 	switch p {
+	case PhaseUnknown:
+		return "unknown"
 	case PhaseSerde:
 		return "serde"
 	case PhaseProcessing:
