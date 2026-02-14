@@ -125,8 +125,19 @@ func TestE2E_OffsetCommit_ProgressesThroughTopic(t *testing.T) {
 
 		require.Len(t, allRecords, 5, "expected exactly 5 unique records in output topic (3 from old, 2 from new)")
 
-		offsets := getCommittedOffsets(t, broker, groupID)
-		require.GreaterOrEqual(t, offsets[inputTopic][0], int64(5))
+		eventually(
+			t, func() bool {
+				offsets := getCommittedOffsets(t, broker, groupID)
+				if offsets == nil {
+					return false
+				}
+				topicOffsets, ok := offsets[inputTopic]
+				if !ok {
+					return false
+				}
+				return topicOffsets[0] >= 5
+			}, 15*time.Second, "offsets not committed to >= 5",
+		)
 
 		cancel()
 		waitForShutdown(t, errCh, shutdownWait)
