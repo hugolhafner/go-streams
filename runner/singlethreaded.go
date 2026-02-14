@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/hugolhafner/go-streams/errorhandler"
 	"github.com/hugolhafner/go-streams/kafka"
 	"github.com/hugolhafner/go-streams/logger"
 	streamsotel "github.com/hugolhafner/go-streams/otel"
@@ -20,11 +21,12 @@ var _ Runner = (*SingleThreaded)(nil)
 var _ kafka.RebalanceCallback = (*SingleThreaded)(nil)
 
 type SingleThreaded struct {
-	consumer    kafka.Consumer
-	producer    kafka.Producer
-	taskManager task.Manager
-	topology    *topology.Topology
-	config      SingleThreadedConfig
+	consumer     kafka.Consumer
+	producer     kafka.Producer
+	taskManager  task.Manager
+	topology     *topology.Topology
+	config       SingleThreadedConfig
+	errorHandler errorhandler.Handler
 
 	logger    logger.Logger
 	telemetry *streamsotel.Telemetry
@@ -51,8 +53,12 @@ func NewSingleThreadedRunner(
 			taskManager: task.NewManager(f, producer, config.Logger),
 			topology:    t,
 			config:      config,
-			errChan:     make(chan error, 1),
-			telemetry:   telemetry,
+			errorHandler: errorhandler.NewPhaseRouter(
+				config.ErrorHandler, config.SerdeErrorHandler,
+				config.ProcessingErrorHandler, config.ProductionErrorHandler,
+			),
+			errChan:   make(chan error, 1),
+			telemetry: telemetry,
 			logger: config.Logger.
 				With("component", "runner").
 				With("runner", "single-threaded"),
@@ -98,7 +104,7 @@ func (r *SingleThreaded) doPoll(ctx context.Context) error {
 	if err != nil {
 		receiveSpan.RecordError(err)
 		receiveSpan.End()
-		
+
 		tel.PollDuration.Record(
 			ctx, time.Since(pollStart).Seconds(), metric.WithAttributes(
 				streamsotel.AttrPollStatus.String(streamsotel.StatusError),
@@ -157,7 +163,9 @@ func (r *SingleThreaded) processRecord(ctx context.Context, record kafka.Consume
 		return nil
 	}
 
-	return processRecordWithRetry(ctx, record, t, r.consumer, r.producer, r.config.ErrorHandler, r.telemetry, r.logger)
+	return processRecordWithRetry(
+		ctx, record, t, r.consumer, r.producer, r.errorHandler, r.telemetry, r.logger,
+	)
 }
 
 func (r *SingleThreaded) emitErr(err error) {

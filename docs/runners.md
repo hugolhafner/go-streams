@@ -41,11 +41,14 @@ runner.NewSingleThreadedRunner(opts ...SingleThreadedOption) Factory
 
 ### Options
 
-| Option | Description |
-|--------|-------------|
-| `runner.WithLogger(l)` | Set the logger |
-| `runner.WithErrorHandler(h)` | Set the error handler (default: `LogAndContinue`) |
-| `runner.WithPollErrorBackoff(b)` | Backoff strategy for poll errors (default: 1s fixed) |
+| Option                                 | Description                                                                     |
+|----------------------------------------|---------------------------------------------------------------------------------|
+| `runner.WithLogger(l)`                 | Set the logger                                                                  |
+| `runner.WithErrorHandler(h)`           | Set the error handler (default: `SilentFail`)                                   |
+| `runner.WithProcessingErrorHandler(h)` | Handler for processing errors (default: nil, falls back to `ErrorHandler`)      |
+| `runner.WithSerdeErrorHandler(h)`      | Handler for deserialization errors (default: nil, falls back to `ErrorHandler`) |
+| `runner.WithProductionErrorHandler(h)` | Handler for production/sink errors (default: nil, falls back to `ErrorHandler`) |
+| `runner.WithPollErrorBackoff(b)`       | Backoff strategy for poll errors (default: 1s fixed)                            |
 
 ## PartitionedRunner
 
@@ -70,14 +73,17 @@ runner.NewPartitionedRunner(opts ...PartitionedOption) Factory
 
 All `SingleThreadedRunner` options are also available, plus:
 
-| Option | Default | Description |
-|--------|---------|-------------|
-| `runner.WithLogger(l)` | noop | Set the logger |
-| `runner.WithErrorHandler(h)` | `LogAndContinue` | Set the error handler |
-| `runner.WithPollErrorBackoff(b)` | 1s fixed | Backoff for poll errors |
-| `runner.WithChannelBufferSize(n)` | 100 | Buffer size for partition record channels |
-| `runner.WithWorkerShutdownTimeout(d)` | 30s | Max time a single worker spends draining on shutdown |
-| `runner.WithDrainTimeout(d)` | 60s | Max time to wait for all workers to finish draining |
+| Option                                 | Default      | Description                                                       |
+|----------------------------------------|--------------|-------------------------------------------------------------------|
+| `runner.WithLogger(l)`                 | noop         | Set the logger                                                    |
+| `runner.WithErrorHandler(h)`           | `SilentFail` | Set the error handler                                             |
+| `runner.WithProcessingErrorHandler(h)` | nil          | Handler for processing errors (falls back to `ErrorHandler`)      |
+| `runner.WithSerdeErrorHandler(h)`      | nil          | Handler for deserialization errors (falls back to `ErrorHandler`) |
+| `runner.WithProductionErrorHandler(h)` | nil          | Handler for production/sink errors (falls back to `ErrorHandler`) |
+| `runner.WithPollErrorBackoff(b)`       | 1s fixed     | Backoff for poll errors                                           |
+| `runner.WithChannelBufferSize(n)`      | 100          | Buffer size for partition record channels                         |
+| `runner.WithWorkerShutdownTimeout(d)`  | 30s          | Max time a single worker spends draining on shutdown              |
+| `runner.WithDrainTimeout(d)`           | 60s          | Max time to wait for all workers to finish draining               |
 
 ### Backpressure
 
@@ -85,7 +91,7 @@ The `PartitionedRunner` uses channel-based backpressure:
 
 1. Each worker has a buffered channel of size `ChannelBufferSize`
 2. When a record can't be submitted (channel full), it's queued in a pending buffer
-3. The partition is **paused** at the Kafka consumer — no more records are fetched for it
+3. The partition is **paused** at the Kafka consumer - no more records are fetched for it
 4. On each poll cycle, pending records are retried
 5. When the pending buffer is fully drained, the partition is **resumed**
 

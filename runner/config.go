@@ -11,15 +11,29 @@ import (
 // BaseConfig is shared by all runners
 type BaseConfig struct {
 	Logger           logger.Logger
-	ErrorHandler     errorhandler.Handler
 	PollErrorBackoff backoff.Backoff
+
+	// ErrorHandler is invoked for all errors if more specific handlers are not set
+	ErrorHandler errorhandler.Handler
+
+	// SerdeErrorHandler is invoked for serde errors.
+	// nil means fall back to ErrorHandler.
+	SerdeErrorHandler errorhandler.Handler
+
+	// ProcessingErrorHandler is invoked for processing errors.
+	// nil means fall back to ErrorHandler.
+	ProcessingErrorHandler errorhandler.Handler
+
+	// ProductionErrorHandler is invoked for production/sink errors.
+	// nil means fall back to ErrorHandler.
+	ProductionErrorHandler errorhandler.Handler
 }
 
 func defaultBaseConfig() BaseConfig {
 	l := logger.NewNoopLogger()
 	return BaseConfig{
 		Logger:           l,
-		ErrorHandler:     errorhandler.LogAndContinue(l),
+		ErrorHandler:     errorhandler.SilentFail(),
 		PollErrorBackoff: backoff.NewFixed(time.Second),
 	}
 }

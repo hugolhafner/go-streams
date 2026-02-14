@@ -15,11 +15,11 @@ Processor returns error
 
 An error handler returns one of four actions:
 
-| Action | Behavior |
-|--------|----------|
-| `ActionContinue{}` | Skip the record and continue processing |
-| `ActionRetry{}` | Retry processing the same record |
-| `ActionFail{}` | Stop the runner with the error |
+| Action                   | Behavior                                                    |
+|--------------------------|-------------------------------------------------------------|
+| `ActionContinue{}`       | Skip the record and continue processing                     |
+| `ActionRetry{}`          | Retry processing the same record                            |
+| `ActionFail{}`           | Stop the runner with the error                              |
 | `ActionSendToDLQ{topic}` | Send the record to a dead letter queue topic, then continue |
 
 ## ErrorContext
@@ -32,8 +32,23 @@ type ErrorContext struct {
     Error    error                 // The error from the processor
     Attempt  int                   // Current attempt number (1-indexed)
     NodeName string                // Topology node where the error occurred
+    Phase    ErrorPhase            // Pipeline phase where the error occurred
 }
 ```
+
+## Error Phases
+
+Every error is classified into a phase that indicates where in the pipeline it occurred:
+
+| Phase             | Value | Description                                              |
+|-------------------|-------|----------------------------------------------------------|
+| `PhaseUnknown`    | `0`   | Zero value - uninitialized phase                         |
+| `PhaseSerde`      | `1`   | Error during key/value serialization or deserialization. |
+| `PhaseProcessing` | `2`   | Error during processor execution                         |
+| `PhaseProduction` | `3`   | Error during sink serialization or Kafka production      |
+
+The phase is set automatically by the runner and available on `ErrorContext.Phase`. You can use `phase.String()` to
+get a human-readable name (e.g. `"unknown"`, `"serde"`, `"processing"`, `"production"`).
 
 ## Built-in Handlers
 
@@ -96,10 +111,10 @@ handler := errorhandler.ActionLogger(
 
 This creates the following pipeline:
 
-1. **ActionLogger** — logs every handler decision at `Info` level
-2. **WithMaxAttempts** — retries up to 3 times with 1-second backoff
-3. When retries are exhausted, **WithDLQ** — sends to the `"dlq"` topic
-4. **LogAndContinue** — logs the error (this would normally return `Continue`, but `WithDLQ` intercepts it and returns `SendToDLQ` instead)
+1. **ActionLogger** - logs every handler decision at `Info` level
+2. **WithMaxAttempts** - retries up to 3 times with 1-second backoff
+3. When retries are exhausted, **WithDLQ** - sends to the `"dlq"` topic
+4. **LogAndContinue** - logs the error (this would normally return `Continue`, but `WithDLQ` intercepts it and returns `SendToDLQ` instead)
 
 ## Custom Handlers
 
@@ -132,4 +147,65 @@ app.RunWith(ctx, runner.NewSingleThreadedRunner(
 ))
 ```
 
-The default error handler is `LogAndContinue` with a noop logger.
+The default error handler is `SilentFail`.
+
+## Phase-Specific Error Handlers
+
+By default, `WithErrorHandler` handles errors from all phases. You can optionally set separate handlers per phase:
+
+```go
+app.RunWith(ctx, runner.NewPartitionedRunner(
+    runner.WithErrorHandler(defaultHandler),                          // fallback for all phases
+    runner.WithSerdeErrorHandler(poisonPillHandler),                  // serialization / deserialization errors only
+    runner.WithProcessingErrorHandler(processingHandler),             // processor execution errors only
+    runner.WithProductionErrorHandler(productionHandler),             // production/sink errors only
+))
+```
+
+The routing logic:
+
+| Error Phase | Handler Used                                              |
+|-------------|-----------------------------------------------------------|
+| Serde       | `SerdeErrorHandler` if set, otherwise `ErrorHandler`      |
+| Processing  | `ProcessingErrorHandler` if set, otherwise `ErrorHandler` |
+| Production  | `ProductionErrorHandler` if set, otherwise `ErrorHandler` |
+
+All phase-specific handlers default to `nil`, which means the general `ErrorHandler` is used as fallback.
+
+### Example: Skip Poison Pills, Fail on Production Errors
+
+```go
+app.RunWith(ctx, runner.NewPartitionedRunner(
+    // Default: retry up to 3 times, then skip
+    runner.WithErrorHandler(
+        errorhandler.WithMaxAttempts(3, backoff.NewFixed(time.Second),
+            errorhandler.LogAndContinue(myLogger),
+        ),
+    ),
+    // Serialization / Deserialization: always skip (poison pill / bad data)
+    runner.WithSerdeErrorHandler(
+        errorhandler.LogAndContinue(myLogger),
+    ),
+    // Production: always fail immediately
+    runner.WithProductionErrorHandler(
+        errorhandler.LogAndFail(myLogger),
+    ),
+))
+```
+
+### Inspecting Error Phase in Custom Handlers
+
+Phase information is available on `ErrorContext` for custom routing logic:
+
+```go
+handler := errorhandler.HandlerFunc(func(ctx context.Context, ec errorhandler.ErrorContext) errorhandler.Action {
+    switch ec.Phase {
+    case errorhandler.PhaseSerde:
+        return errorhandler.ActionContinue{}  // skip bad records
+    case errorhandler.PhaseProduction:
+        return errorhandler.ActionFail{}      // fail on sink errors
+    default:
+        return errorhandler.ActionRetry{}     // retry processing errors
+    }
+})
+```

@@ -5,7 +5,7 @@ go-streams uses a serde (serializer/deserializer) system to convert between Go t
 ## Interfaces
 
 ```go
-// Full serde — implements both directions
+// Full serde - implements both directions
 type Serde[T any] interface {
     Serialiser[T]
     Deserialiser[T]
@@ -39,7 +39,7 @@ All built-in serdes implement `Serde[T]` (both serialization and deserialization
 
 ### Bytes
 
-Pass-through — no transformation. This is the default when no serde is specified.
+Pass-through - no transformation. This is the default when no serde is specified.
 
 ```go
 serde.Bytes() // Serde[[]byte]

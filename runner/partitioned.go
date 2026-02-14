@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/hugolhafner/go-streams/errorhandler"
 	"github.com/hugolhafner/go-streams/kafka"
 	"github.com/hugolhafner/go-streams/logger"
 	streamsotel "github.com/hugolhafner/go-streams/otel"
@@ -26,7 +27,9 @@ type PartitionedRunner struct {
 	producer    kafka.Producer
 	taskManager task.Manager
 	topology    *topology.Topology
-	config      PartitionedConfig
+
+	errorHandler errorhandler.Handler
+	config       PartitionedConfig
 
 	workers map[kafka.TopicPartition]*partitionWorker
 	mu      sync.RWMutex
@@ -66,13 +69,17 @@ func NewPartitionedRunner(opts ...PartitionedOption) Factory {
 			producer:    producer,
 			taskManager: task.NewManager(f, producer, config.Logger),
 			topology:    t,
-			config:      config,
-			workers:     make(map[kafka.TopicPartition]*partitionWorker),
-			pending:     make(map[kafka.TopicPartition][]kafka.ConsumerRecord),
-			paused:      make(map[kafka.TopicPartition]struct{}),
-			errCh:       make(chan error, 1),
-			logger:      l,
-			telemetry:   telemetry,
+			errorHandler: errorhandler.NewPhaseRouter(
+				config.ErrorHandler, config.SerdeErrorHandler,
+				config.ProcessingErrorHandler, config.ProductionErrorHandler,
+			),
+			config:    config,
+			workers:   make(map[kafka.TopicPartition]*partitionWorker),
+			pending:   make(map[kafka.TopicPartition][]kafka.ConsumerRecord),
+			paused:    make(map[kafka.TopicPartition]struct{}),
+			errCh:     make(chan error, 1),
+			logger:    l,
+			telemetry: telemetry,
 		}, nil
 	}
 }
@@ -302,7 +309,7 @@ func (r *PartitionedRunner) OnAssigned(ctx context.Context, partitions []kafka.T
 			t,
 			r.consumer,
 			r.producer,
-			r.config.ErrorHandler,
+			r.errorHandler,
 			r.config.ChannelBufferSize,
 			r.config.WorkerShutdownTimeout,
 			r.errCh,

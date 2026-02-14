@@ -12,6 +12,7 @@ const (
 	AttrProduceStatus = attribute.Key("stream.produce.status")
 	AttrErrorAction   = attribute.Key("stream.error.action")
 	AttrErrorNode     = attribute.Key("stream.error.node")
+	AttrErrorPhase    = attribute.Key("stream.error.phase")
 	AttrRunnerType    = attribute.Key("stream.runner.type")
 )
 

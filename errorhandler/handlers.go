@@ -8,6 +8,15 @@ import (
 	"github.com/hugolhafner/go-streams/logger"
 )
 
+// SilentFail is a handler that always returns ActionFail without logging anything
+func SilentFail() Handler {
+	return HandlerFunc(
+		func(ctx context.Context, ec ErrorContext) Action {
+			return ActionFail{}
+		},
+	)
+}
+
 // LogAndContinue logs error and continues processing
 func LogAndContinue(logger logger.Logger) Handler {
 	return HandlerFunc(
