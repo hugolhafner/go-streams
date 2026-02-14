@@ -17,6 +17,7 @@ import (
 )
 
 func TestLogAndContinue(t *testing.T) {
+	t.Parallel()
 	var testErr = errors.New("processing failed")
 
 	tests := []struct {
@@ -30,6 +31,7 @@ func TestLogAndContinue(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(
 			tt.name, func(t *testing.T) {
+				t.Parallel()
 				ec := errorhandler.NewErrorContext(kafka.ConsumerRecord{}, nil)
 
 				l := mocklogger.New()
@@ -44,6 +46,7 @@ func TestLogAndContinue(t *testing.T) {
 }
 
 func TestLogAndFail(t *testing.T) {
+	t.Parallel()
 	var testErr = errors.New("processing failed")
 
 	tests := []struct {
@@ -57,6 +60,7 @@ func TestLogAndFail(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(
 			tt.name, func(t *testing.T) {
+				t.Parallel()
 				ec := errorhandler.NewErrorContext(kafka.ConsumerRecord{}, nil)
 
 				l := mocklogger.New()
@@ -71,8 +75,10 @@ func TestLogAndFail(t *testing.T) {
 }
 
 func TestWithMaxAttempts(t *testing.T) {
+	t.Parallel()
 	t.Run(
 		"should call fallback after max attempts", func(t *testing.T) {
+			t.Parallel()
 			var testErr = errors.New("processing failed")
 			var maxAttempts = 3
 
@@ -106,6 +112,7 @@ func TestWithMaxAttempts(t *testing.T) {
 
 	t.Run(
 		"should wait on attempts", func(t *testing.T) {
+			t.Parallel()
 			var testErr = errors.New("processing failed")
 			var maxAttempts = 3
 
@@ -137,6 +144,7 @@ func TestWithMaxAttempts(t *testing.T) {
 
 	t.Run(
 		"should respect context cancellation", func(t *testing.T) {
+			t.Parallel()
 			var testErr = errors.New("processing failed")
 			var maxRetries = 3
 

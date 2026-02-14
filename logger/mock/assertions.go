@@ -7,6 +7,8 @@ import (
 )
 
 func (m *MockLogger) AssertCalledWithMessage(tb testing.TB, message string) {
+	tb.Helper()
+
 	for _, entry := range m.Entries {
 		if entry.Message == message {
 			return
@@ -17,6 +19,8 @@ func (m *MockLogger) AssertCalledWithMessage(tb testing.TB, message string) {
 }
 
 func (m *MockLogger) AssertCalledWithLevel(tb testing.TB, level logger.LogLevel) {
+	tb.Helper()
+
 	for _, entry := range m.Entries {
 		if entry.Level == level {
 			return
@@ -27,6 +31,8 @@ func (m *MockLogger) AssertCalledWithLevel(tb testing.TB, level logger.LogLevel)
 }
 
 func (m *MockLogger) AssertCalledWithLevelAndMessage(tb testing.TB, level logger.LogLevel, message string) {
+	tb.Helper()
+
 	for _, entry := range m.Entries {
 		if entry.Level == level && entry.Message == message {
 			return
@@ -37,6 +43,8 @@ func (m *MockLogger) AssertCalledWithLevelAndMessage(tb testing.TB, level logger
 }
 
 func (m *MockLogger) AssertNotCalledWithMessage(tb testing.TB, message string) {
+	tb.Helper()
+
 	for _, entry := range m.Entries {
 		if entry.Message == message {
 			tb.Errorf("expected log message '%s' to NOT be called", message)
@@ -46,6 +54,8 @@ func (m *MockLogger) AssertNotCalledWithMessage(tb testing.TB, message string) {
 }
 
 func (m *MockLogger) AssertNotCalledWithLevel(tb testing.TB, level logger.LogLevel) {
+	tb.Helper()
+
 	for _, entry := range m.Entries {
 		if entry.Level == level {
 			tb.Errorf("expected log level '%s' to NOT be called", level.String())
@@ -55,6 +65,8 @@ func (m *MockLogger) AssertNotCalledWithLevel(tb testing.TB, level logger.LogLev
 }
 
 func (m *MockLogger) AssertCalled(tb testing.TB, level logger.LogLevel, message string, kv ...any) {
+	tb.Helper()
+
 	for _, entry := range m.Entries {
 		if entry.Level != level || entry.Message != message {
 			continue

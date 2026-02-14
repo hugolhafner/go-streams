@@ -13,6 +13,7 @@ import (
 )
 
 func TestForEachProcessor_Process(t *testing.T) {
+	t.Parallel()
 	records := []*record.Record[int, int]{
 		{Key: 1, Value: 2},
 		{Key: 3, Value: 4},
@@ -40,8 +41,10 @@ func TestForEachProcessor_Process(t *testing.T) {
 }
 
 func TestForEachProcessor_ActionError(t *testing.T) {
+	t.Parallel()
 	t.Run(
 		"action error is propagated", func(t *testing.T) {
+			t.Parallel()
 			action := func(ctx context.Context, k, v int) error {
 				return errUserFunction
 			}
@@ -57,6 +60,7 @@ func TestForEachProcessor_ActionError(t *testing.T) {
 
 	t.Run(
 		"action error with specific condition", func(t *testing.T) {
+			t.Parallel()
 			action := func(ctx context.Context, k, v int) error {
 				if v > 100 {
 					return errors.New("value too large")

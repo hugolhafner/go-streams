@@ -15,8 +15,10 @@ import (
 )
 
 func TestMapProcessor_Process(t *testing.T) {
+	t.Parallel()
 	t.Run(
 		"map primitive types", func(t *testing.T) {
+			t.Parallel()
 			tests := []struct {
 				name     string
 				mapper   builtins.MapFunc[int, int, int, int]
@@ -52,6 +54,7 @@ func TestMapProcessor_Process(t *testing.T) {
 			for _, tt := range tests {
 				t.Run(
 					tt.name, func(t *testing.T) {
+						t.Parallel()
 						p := builtins.NewMapProcessor(tt.mapper)
 						ctx := processor.NewMockContext[int, int]()
 						ctx.Mock.On("Forward", mock.Anything, mock.Anything).Return(nil)
@@ -76,6 +79,7 @@ func TestMapProcessor_Process(t *testing.T) {
 
 	t.Run(
 		"map to different struct types", func(t *testing.T) {
+			t.Parallel()
 			type Input struct {
 				A int
 				B string
@@ -119,6 +123,7 @@ func TestMapProcessor_Process(t *testing.T) {
 			for _, tt := range tests {
 				t.Run(
 					tt.name, func(t *testing.T) {
+						t.Parallel()
 						p := builtins.NewMapProcessor(tt.mapper)
 						ctx := processor.NewMockContext[string, Output]()
 						ctx.Mock.On("Forward", mock.Anything, mock.Anything).Return(nil)
@@ -142,8 +147,10 @@ func TestMapProcessor_Process(t *testing.T) {
 }
 
 func TestMapProcessor_MapperError(t *testing.T) {
+	t.Parallel()
 	t.Run(
 		"mapper error is propagated", func(t *testing.T) {
+			t.Parallel()
 			mapper := func(ctx context.Context, k, v int) (int, int, error) {
 				return 0, 0, errUserFunction
 			}
@@ -163,6 +170,7 @@ func TestMapProcessor_MapperError(t *testing.T) {
 
 	t.Run(
 		"mapper error with type transformation", func(t *testing.T) {
+			t.Parallel()
 			mapper := func(ctx context.Context, k string, v int) (string, string, error) {
 				if v < 0 {
 					return "", "", errors.New("negative values not allowed")
@@ -185,8 +193,10 @@ func TestMapProcessor_MapperError(t *testing.T) {
 }
 
 func TestMapProcessor_ForwardError(t *testing.T) {
+	t.Parallel()
 	t.Run(
 		"forward error is propagated", func(t *testing.T) {
+			t.Parallel()
 			forwardErr := errors.New("forward failed")
 
 			mapper := func(ctx context.Context, k, v int) (int, int, error) {

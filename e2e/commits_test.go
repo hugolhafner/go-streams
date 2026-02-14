@@ -57,7 +57,7 @@ func TestE2E_OffsetCommit_ProgressesThroughTopic(t *testing.T) {
 			errCh <- app.RunWith(ctx, runner.NewSingleThreadedRunner())
 		}()
 
-		time.Sleep(startupWait)
+		waitForGroupMembers(t, broker, groupID, 1, eventualWait)
 
 		batch1 := map[string]string{
 			"batch1-key1": "first",
@@ -113,15 +113,13 @@ func TestE2E_OffsetCommit_ProgressesThroughTopic(t *testing.T) {
 			errCh <- app.RunWith(ctx, runner.NewSingleThreadedRunner())
 		}()
 
-		time.Sleep(startupWait)
+		waitForGroupMembers(t, broker, groupID, 1, eventualWait)
 
 		batch2 := map[string]string{
 			"batch2-key1": "fourth",
 			"batch2-key2": "fifth",
 		}
 		produceRecords(t, broker, inputTopic, batch2)
-
-		time.Sleep(3 * time.Second) // Give time for processing
 
 		allRecords := consumeAsMap(t, broker, outputTopic, testGroupID(t, "verifier2"), 5, consumeWait)
 
@@ -172,7 +170,7 @@ func TestE2E_OffsetCommit_MultiplePartitions(t *testing.T) {
 		errCh <- app.RunWith(ctx, runner.NewSingleThreadedRunner())
 	}()
 
-	time.Sleep(startupWait)
+	waitForGroupMembers(t, broker, groupID, 1, eventualWait)
 
 	testData := map[string]string{
 		"a": "val-a", "b": "val-b", "c": "val-c",

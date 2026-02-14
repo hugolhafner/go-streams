@@ -3,7 +3,6 @@ package runner
 import (
 	"context"
 	"errors"
-	"fmt"
 	"strconv"
 	"time"
 
@@ -47,10 +46,10 @@ func sendToDLQ(
 	headers = append(
 		headers,
 		kafka.Header{Key: "x-original-topic", Value: []byte(record.Topic)},
-		kafka.Header{Key: "x-original-partition", Value: []byte(fmt.Sprintf("%d", record.Partition))},
-		kafka.Header{Key: "x-original-offset", Value: []byte(fmt.Sprintf("%d", record.Offset))},
+		kafka.Header{Key: "x-original-partition", Value: []byte(strconv.Itoa(int(record.Partition)))},
+		kafka.Header{Key: "x-original-offset", Value: []byte(strconv.Itoa(int(record.Offset)))},
 		kafka.Header{Key: "x-error-timestamp", Value: []byte(time.Now().Format(time.RFC3339))},
-		kafka.Header{Key: "x-error-attempt", Value: []byte(fmt.Sprintf("%d", ec.Attempt))},
+		kafka.Header{Key: "x-error-attempt", Value: []byte(strconv.Itoa(ec.Attempt))},
 		kafka.Header{Key: "x-error-phase", Value: []byte(ec.Phase.String())},
 	)
 

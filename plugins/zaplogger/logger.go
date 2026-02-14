@@ -8,6 +8,7 @@ import (
 
 var _ logger.Base = (*ZapLogger)(nil)
 
+// ZapLogger is a logger that wraps a zap.Logger and implements the logger.Base interface.
 type ZapLogger struct {
 	l *zap.Logger
 }
@@ -40,27 +41,27 @@ func (z *ZapLogger) Log(level logger.LogLevel, msg string, kv ...any) {
 func mapToZapLevel(level logger.LogLevel) zapcore.Level {
 	switch level {
 	case logger.DebugLevel:
-		return zap.DebugLevel
+		return zapcore.DebugLevel
 	case logger.InfoLevel:
-		return zap.InfoLevel
+		return zapcore.InfoLevel
 	case logger.WarnLevel:
-		return zap.WarnLevel
+		return zapcore.WarnLevel
 	case logger.ErrorLevel:
-		return zap.ErrorLevel
+		return zapcore.ErrorLevel
 	default:
-		return zap.InfoLevel
+		return zapcore.InfoLevel
 	}
 }
 
 func mapFromZapLevel(level zapcore.Level) logger.LogLevel {
 	switch level {
-	case zap.DebugLevel:
+	case zapcore.DebugLevel:
 		return logger.DebugLevel
-	case zap.InfoLevel:
+	case zapcore.InfoLevel:
 		return logger.InfoLevel
-	case zap.WarnLevel:
+	case zapcore.WarnLevel:
 		return logger.WarnLevel
-	case zap.ErrorLevel, zap.DPanicLevel, zap.PanicLevel, zap.FatalLevel:
+	case zapcore.InvalidLevel, zapcore.ErrorLevel, zapcore.DPanicLevel, zapcore.PanicLevel, zapcore.FatalLevel:
 		return logger.ErrorLevel
 	default:
 		return logger.InfoLevel

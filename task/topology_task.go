@@ -2,6 +2,7 @@ package task
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 
@@ -15,7 +16,7 @@ import (
 )
 
 var (
-	ErrTaskClosed = fmt.Errorf("task is closed")
+	ErrTaskClosed = errors.New("task is closed")
 )
 
 var _ Task = (*TopologyTask)(nil)

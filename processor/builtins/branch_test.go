@@ -15,6 +15,7 @@ import (
 )
 
 func TestBranchProcessor_Process(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name             string
 		processor        builtins.BranchProcessor[int, int]
@@ -62,6 +63,7 @@ func TestBranchProcessor_Process(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(
 			tt.name, func(t *testing.T) {
+				t.Parallel()
 				ctx := processor.NewMockContext[int, int]()
 				ctx.On("ForwardTo", mock.Anything, mock.AnythingOfType("string"), tt.record).Return(nil)
 				tt.processor.Init(ctx)
@@ -82,8 +84,10 @@ func TestBranchProcessor_Process(t *testing.T) {
 }
 
 func TestBranchProcessor_PredicateError(t *testing.T) {
+	t.Parallel()
 	t.Run(
 		"first predicate error is propagated", func(t *testing.T) {
+			t.Parallel()
 			predicates := []builtins.PredicateFunc[int, int]{
 				func(ctx context.Context, k, v int) (bool, error) {
 					return false, errUserFunction
@@ -109,6 +113,7 @@ func TestBranchProcessor_PredicateError(t *testing.T) {
 
 	t.Run(
 		"second predicate error after first passes", func(t *testing.T) {
+			t.Parallel()
 			predicates := []builtins.PredicateFunc[int, int]{
 				func(ctx context.Context, k, v int) (bool, error) {
 					return false, nil // first predicate passes but returns false
@@ -134,8 +139,10 @@ func TestBranchProcessor_PredicateError(t *testing.T) {
 }
 
 func TestBranchProcessor_ForwardToError(t *testing.T) {
+	t.Parallel()
 	t.Run(
 		"forwardTo error is propagated", func(t *testing.T) {
+			t.Parallel()
 			forwardErr := errors.New("forwardTo failed")
 
 			predicates := []builtins.PredicateFunc[int, int]{

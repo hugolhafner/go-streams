@@ -17,6 +17,7 @@ import (
 var errUserFunction = errors.New("user function error")
 
 func TestFilterProcessor_Process(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name          string
 		predicate     builtins.PredicateFunc[int, int]
@@ -40,6 +41,7 @@ func TestFilterProcessor_Process(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(
 			tt.name, func(t *testing.T) {
+				t.Parallel()
 				p := builtins.NewFilterProcessor(tt.predicate)
 				ctx := processor.NewMockContext[int, int]()
 				ctx.Mock.On("Forward", mock.Anything, mock.Anything).Return(nil)
@@ -65,8 +67,10 @@ func TestFilterProcessor_Process(t *testing.T) {
 }
 
 func TestFilterProcessor_PredicateError(t *testing.T) {
+	t.Parallel()
 	t.Run(
 		"predicate error is propagated", func(t *testing.T) {
+			t.Parallel()
 			predicate := func(ctx context.Context, k, v int) (bool, error) {
 				return false, errUserFunction
 			}
@@ -86,6 +90,7 @@ func TestFilterProcessor_PredicateError(t *testing.T) {
 
 	t.Run(
 		"predicate error takes precedence over forward", func(t *testing.T) {
+			t.Parallel()
 			// Even if the predicate would return true, an error should stop processing
 			predicate := func(ctx context.Context, k, v int) (bool, error) {
 				return true, errUserFunction // returns true but also error
@@ -106,8 +111,10 @@ func TestFilterProcessor_PredicateError(t *testing.T) {
 }
 
 func TestFilterProcessor_ForwardError(t *testing.T) {
+	t.Parallel()
 	t.Run(
 		"forward error is propagated", func(t *testing.T) {
+			t.Parallel()
 			forwardErr := errors.New("forward failed")
 
 			predicate := func(ctx context.Context, k, v int) (bool, error) {

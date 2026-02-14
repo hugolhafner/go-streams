@@ -12,6 +12,7 @@ import (
 )
 
 func TestProcessError(t *testing.T) {
+	t.Parallel()
 	cause := errors.New("processing failed")
 	err := task.NewProcessError(cause, "proc-1")
 
@@ -25,6 +26,7 @@ func TestProcessError(t *testing.T) {
 }
 
 func TestDeserializationError(t *testing.T) {
+	t.Parallel()
 	cause := fmt.Errorf("deserialize key: %w", errors.New("invalid utf8"))
 	err := task.NewSerdeError(cause)
 
@@ -43,6 +45,7 @@ func TestDeserializationError(t *testing.T) {
 }
 
 func TestProductionError(t *testing.T) {
+	t.Parallel()
 	cause := fmt.Errorf("produce to output: %w", errors.New("broker down"))
 	err := task.NewProductionError(cause, "sink-1")
 
@@ -62,6 +65,7 @@ func TestProductionError(t *testing.T) {
 }
 
 func TestAsHelpers_Nil(t *testing.T) {
+	t.Parallel()
 	_, ok := task.AsSerdeError(nil)
 	require.False(t, ok)
 
@@ -73,6 +77,7 @@ func TestAsHelpers_Nil(t *testing.T) {
 }
 
 func TestAsHelpers_PlainError(t *testing.T) {
+	t.Parallel()
 	err := errors.New("plain error")
 
 	_, ok := task.AsSerdeError(err)

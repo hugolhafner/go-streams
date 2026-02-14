@@ -9,10 +9,10 @@ run = "go mod tidy && go mod download && go mod verify"
 run = "golangci-lint run ./..."
 
 [tasks.test]
-run = "go test -v -tags=unit ./..."
+run = "go test -race -v -tags=unit ./..."
 
-[tasks.test-json]
-run = "go test -v -tags=unit -json ./... | tee test-results.json"
+[tasks.test-chaos]
+run = "go test -v -race -tags=unit -run='TestChaos_' ./runner/..."
 
 [tasks.test-integration]
 run = "go test -v -tags=integration ./..."
@@ -20,5 +20,8 @@ run = "go test -v -tags=integration ./..."
 [tasks.test-e2e]
 run = "go test -v -tags=e2e ./e2e/..."
 
-[tasks.test-e2e-json]
-run = "go test -v -tags=e2e -json ./e2e/... | tee e2e-test-results.json"
+[tasks.test-fuzz]
+run = "go test -run='^$' -fuzz='.' -fuzztime=30s ./..."
+
+[tasks.test-e2e-chaos]
+run = "go test -v -tags=e2e -run='TestE2E_Chaos_' -timeout=10m ./e2e/..."

@@ -52,7 +52,7 @@ func TestE2E_SimpleTopology_ProcessesRecords(t *testing.T) {
 		errCh <- app.RunWith(ctx, runner.NewSingleThreadedRunner())
 	}()
 
-	time.Sleep(startupWait)
+	waitForGroupMembers(t, broker, groupID, 1, eventualWait)
 
 	testData := map[string]string{
 		"key1": "hello",
@@ -107,7 +107,7 @@ func TestE2E_FilterTopology_DropsRecords(t *testing.T) {
 		errCh <- app.RunWith(ctx, runner.NewSingleThreadedRunner())
 	}()
 
-	time.Sleep(startupWait)
+	waitForGroupMembers(t, broker, groupID, 1, eventualWait)
 
 	testData := map[string]string{
 		"key1": "hi",      // 2 chars - filtered
@@ -175,7 +175,7 @@ func TestE2E_ChainedProcessors_MapThenFilter(t *testing.T) {
 		errCh <- app.RunWith(ctx, runner.NewSingleThreadedRunner())
 	}()
 
-	time.Sleep(startupWait)
+	waitForGroupMembers(t, broker, groupID, 1, eventualWait)
 
 	testData := map[string]string{
 		"important-1": "alert",
@@ -239,7 +239,7 @@ func TestE2E_BranchTopology_SplitsStream(t *testing.T) {
 		errCh <- app.RunWith(ctx, runner.NewSingleThreadedRunner())
 	}()
 
-	time.Sleep(startupWait)
+	waitForGroupMembers(t, broker, groupID, 1, eventualWait)
 
 	testData := map[string]string{
 		"high-1": "urgent",
@@ -297,7 +297,7 @@ func TestE2E_EmptyInput_NoOutput(t *testing.T) {
 		errCh <- app.RunWith(ctx, runner.NewSingleThreadedRunner())
 	}()
 
-	time.Sleep(3 * time.Second)
+	waitForGroupMembers(t, broker, groupID, 1, eventualWait)
 
 	cancel()
 	waitForShutdown(t, errCh, shutdownWait)

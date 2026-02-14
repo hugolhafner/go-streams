@@ -48,41 +48,6 @@ func (p *panicProcessor[K, V]) Close() error {
 	return nil
 }
 
-// closeTrackingProcessor tracks whether Close was called
-type closeTrackingProcessor[K, V any] struct {
-	closed bool
-	ctx    processor.Context[K, V]
-}
-
-func newCloseTrackingProcessor[K, V any]() *closeTrackingProcessor[K, V] {
-	return &closeTrackingProcessor[K, V]{}
-}
-
-func (p *closeTrackingProcessor[K, V]) Init(ctx processor.Context[K, V]) {
-	p.ctx = ctx
-}
-
-func (p *closeTrackingProcessor[K, V]) Process(ctx context.Context, r *record.Record[K, V]) error {
-	return p.ctx.Forward(ctx, r)
-}
-
-func (p *closeTrackingProcessor[K, V]) Close() error {
-	p.closed = true
-	return nil
-}
-
-func newTestRecord(topic string, partition int32, offset int64, key, value string) kafka.ConsumerRecord {
-	return kafka.ConsumerRecord{
-		Topic:       topic,
-		Partition:   partition,
-		Offset:      offset,
-		Key:         []byte(key),
-		Value:       []byte(value),
-		Timestamp:   time.Now(),
-		LeaderEpoch: 1,
-	}
-}
-
 func TestTopologyTask_BasicProcessing(t *testing.T) {
 	// Topology: Source("input") -> Passthrough -> Sink("output")
 	topo := topology.New()
@@ -112,7 +77,7 @@ func TestTopologyTask_BasicProcessing(t *testing.T) {
 		require.NoError(t, closeErr)
 	}()
 
-	rec := newTestRecord("input", 0, 100, "test-key", "test-value")
+	rec := mockkafka.ConsumerRecord("input", 0, 100, "test-key", "test-value")
 	err = tsk.Process(context.Background(), rec)
 	require.NoError(t, err)
 
@@ -152,17 +117,17 @@ func TestTopologyTask_MultipleRecordsProcessing(t *testing.T) {
 	}()
 
 	// Process multiple records - simulating what the runner does
-	rec1 := newTestRecord("input", 0, 0, "k1", "v1")
+	rec1 := mockkafka.ConsumerRecord("input", 0, 0, "k1", "v1")
 	err = tsk.Process(context.Background(), rec1)
 	require.NoError(t, err)
 	// Runner would call: client.MarkRecords(rec1)
 
-	rec2 := newTestRecord("input", 0, 1, "k2", "v2")
+	rec2 := mockkafka.ConsumerRecord("input", 0, 1, "k2", "v2")
 	err = tsk.Process(context.Background(), rec2)
 	require.NoError(t, err)
 	// Runner would call: client.MarkRecords(rec2)
 
-	rec3 := newTestRecord("input", 0, 2, "k3", "v3")
+	rec3 := mockkafka.ConsumerRecord("input", 0, 2, "k3", "v3")
 	err = tsk.Process(context.Background(), rec3)
 	require.NoError(t, err)
 	// Runner would call: client.MarkRecords(rec3)
@@ -218,19 +183,19 @@ func TestTopologyTask_FilterProcessing(t *testing.T) {
 	}()
 
 	// Process record that should pass
-	passRec := newTestRecord("input", 0, 0, "key1", "keep-me")
+	passRec := mockkafka.ConsumerRecord("input", 0, 0, "key1", "keep-me")
 	err = tsk.Process(context.Background(), passRec)
 	require.NoError(t, err)
 	producer.AssertProducedCount(t, 1)
 
 	// Process record that should be dropped
-	dropRec := newTestRecord("input", 0, 1, "key2", "drop")
+	dropRec := mockkafka.ConsumerRecord("input", 0, 1, "key2", "drop")
 	err = tsk.Process(context.Background(), dropRec)
 	require.NoError(t, err)
 	producer.AssertProducedCount(t, 1) // Still 1, not 2
 
 	// Process another record that passes
-	passRec2 := newTestRecord("input", 0, 2, "key3", "also-keep")
+	passRec2 := mockkafka.ConsumerRecord("input", 0, 2, "key3", "also-keep")
 	err = tsk.Process(context.Background(), passRec2)
 	require.NoError(t, err)
 	producer.AssertProducedCount(t, 2)
@@ -269,7 +234,7 @@ func TestTopologyTask_MapTransformation(t *testing.T) {
 		require.NoError(t, closeErr)
 	}()
 
-	rec := newTestRecord("input", 0, 0, "original-key", "original-value")
+	rec := mockkafka.ConsumerRecord("input", 0, 0, "original-key", "original-value")
 	err = tsk.Process(context.Background(), rec)
 	require.NoError(t, err)
 
@@ -322,7 +287,7 @@ func TestTopologyTask_ChainedProcessors(t *testing.T) {
 	}()
 
 	// Record that passes filter
-	validRec := newTestRecord("input", 0, 0, "k1", "valid-data")
+	validRec := mockkafka.ConsumerRecord("input", 0, 0, "k1", "valid-data")
 	err = tsk.Process(context.Background(), validRec)
 	require.NoError(t, err)
 	producer.AssertProducedCount(t, 1)
@@ -331,7 +296,7 @@ func TestTopologyTask_ChainedProcessors(t *testing.T) {
 	require.Equal(t, "processed:valid-data", string(records[0].Value))
 
 	// Record that fails filter
-	invalidRec := newTestRecord("input", 0, 1, "k2", "invalid")
+	invalidRec := mockkafka.ConsumerRecord("input", 0, 1, "k2", "invalid")
 	err = tsk.Process(context.Background(), invalidRec)
 	require.NoError(t, err)
 	producer.AssertProducedCount(t, 1) // Still 1, filtered record doesn't reach sink
@@ -368,7 +333,7 @@ func TestTopologyTask_PanicRecovery(t *testing.T) {
 		require.NoError(t, closeErr)
 	}()
 
-	rec := newTestRecord("input", 0, 0, "key", "value")
+	rec := mockkafka.ConsumerRecord("input", 0, 0, "key", "value")
 	err = tsk.Process(context.Background(), rec)
 
 	// Error should be returned (panic recovered)
@@ -411,7 +376,7 @@ func TestTopologyTask_DeserializationError(t *testing.T) {
 		require.NoError(t, closeErr)
 	}()
 
-	rec := newTestRecord("input", 0, 0, "key", "value")
+	rec := mockkafka.ConsumerRecord("input", 0, 0, "key", "value")
 	err = tsk.Process(context.Background(), rec)
 
 	// Error should be returned for deserialization failure
@@ -461,7 +426,7 @@ func TestTopologyTask_ProducerError(t *testing.T) {
 		require.NoError(t, closeErr)
 	}()
 
-	rec := newTestRecord("input", 0, 0, "key", "value")
+	rec := mockkafka.ConsumerRecord("input", 0, 0, "key", "value")
 	err = tsk.Process(context.Background(), rec)
 
 	// Error should be returned
@@ -653,11 +618,11 @@ func TestTopologyTaskFactory_MultipleSourceTopics(t *testing.T) {
 		require.NoError(t, closeErr)
 	}()
 
-	recA := newTestRecord("topic-a", 0, 0, "keyA", "valueA")
+	recA := mockkafka.ConsumerRecord("topic-a", 0, 0, "keyA", "valueA")
 	err = taskA.Process(context.Background(), recA)
 	require.NoError(t, err)
 
-	recB := newTestRecord("topic-b", 0, 0, "keyB", "valueB")
+	recB := mockkafka.ConsumerRecord("topic-b", 0, 0, "keyB", "valueB")
 	err = taskB.Process(context.Background(), recB)
 	require.NoError(t, err)
 
@@ -701,7 +666,7 @@ func TestTopologyTask_ProcessorError(t *testing.T) {
 		require.NoError(t, closeErr)
 	}()
 
-	rec := newTestRecord("input", 0, 0, "key", "value")
+	rec := mockkafka.ConsumerRecord("input", 0, 0, "key", "value")
 	err = tsk.Process(context.Background(), rec)
 
 	require.Error(t, err)
@@ -746,7 +711,7 @@ func TestTopologyTask_FilterError(t *testing.T) {
 		require.NoError(t, closeErr)
 	}()
 
-	rec := newTestRecord("input", 0, 0, "key", "value")
+	rec := mockkafka.ConsumerRecord("input", 0, 0, "key", "value")
 	err = tsk.Process(context.Background(), rec)
 
 	require.Error(t, err)
@@ -784,9 +749,9 @@ func TestTopologyTask_MarkAndCommitIntegration(t *testing.T) {
 
 	// Simulate runner processing a batch of records
 	records := []kafka.ConsumerRecord{
-		newTestRecord("input", 0, 0, "k1", "v1"),
-		newTestRecord("input", 0, 1, "k2", "v2"),
-		newTestRecord("input", 0, 2, "k3", "v3"),
+		mockkafka.ConsumerRecord("input", 0, 0, "k1", "v1"),
+		mockkafka.ConsumerRecord("input", 0, 1, "k2", "v2"),
+		mockkafka.ConsumerRecord("input", 0, 2, "k3", "v3"),
 	}
 
 	for _, rec := range records {
@@ -848,13 +813,13 @@ func TestTopologyTask_MultiPartitionMarkAndCommit(t *testing.T) {
 	defer func() { _ = task1.Close() }()
 
 	// Process and mark records on partition 0
-	rec0 := newTestRecord("input", 0, 5, "k0", "v0")
+	rec0 := mockkafka.ConsumerRecord("input", 0, 5, "k0", "v0")
 	err = task0.Process(context.Background(), rec0)
 	require.NoError(t, err)
 	client.MarkRecords(rec0)
 
 	// Process and mark records on partition 1
-	rec1 := newTestRecord("input", 1, 10, "k1", "v1")
+	rec1 := mockkafka.ConsumerRecord("input", 1, 10, "k1", "v1")
 	err = task1.Process(context.Background(), rec1)
 	require.NoError(t, err)
 	client.MarkRecords(rec1)
@@ -910,7 +875,7 @@ func TestTopologyTask_SinkSerdeError_NotWrappedAsProcessError(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = tsk.Close() }()
 
-	rec := newTestRecord("input", 0, 0, "key", "value")
+	rec := mockkafka.ConsumerRecord("input", 0, 0, "key", "value")
 	err = tsk.Process(context.Background(), rec)
 
 	require.Error(t, err)
@@ -947,7 +912,7 @@ func TestTopologyTask_CommitError(t *testing.T) {
 	defer func() { _ = tsk.Close() }()
 
 	// Process and mark a record
-	rec := newTestRecord("input", 0, 0, "k", "v")
+	rec := mockkafka.ConsumerRecord("input", 0, 0, "k", "v")
 	err = tsk.Process(context.Background(), rec)
 	require.NoError(t, err)
 	client.MarkRecords(rec)

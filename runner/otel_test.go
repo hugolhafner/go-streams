@@ -12,8 +12,6 @@ import (
 	"github.com/hugolhafner/go-streams/logger"
 	streamsotel "github.com/hugolhafner/go-streams/otel"
 	"github.com/hugolhafner/go-streams/task"
-	"github.com/hugolhafner/go-streams/topology"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/propagation"
@@ -64,18 +62,10 @@ func TestSingleThreaded_OTel_SpanHierarchy(t *testing.T) {
 	factory, err := task.NewTopologyTaskFactory(topo, logger.NewNoopLogger(), task.WithTelemetry(tel))
 	require.NoError(t, err)
 
-	config := defaultSingleThreadedConfig()
-
-	r := &SingleThreaded{
-		consumer:    client,
-		producer:    client,
-		taskManager: task.NewManager(factory, client, logger.NewNoopLogger()),
-		topology:    topo,
-		config:      config,
-		errChan:     make(chan error, 1),
-		telemetry:   tel,
-		logger:      logger.NewNoopLogger(),
-	}
+	runnerFactory := NewSingleThreadedRunner()
+	rn, err := runnerFactory(topo, factory, client, client, tel)
+	require.NoError(t, err)
+	r := rn.(*SingleThreaded)
 
 	// Manually subscribe and trigger assign
 	err = client.Subscribe(topo.SourceTopics(), r)
@@ -96,22 +86,18 @@ func TestSingleThreaded_OTel_SpanHierarchy(t *testing.T) {
 
 	// Verify receive span
 	receiveSpan, ok := spanNames["receive"]
-	assert.True(t, ok, "Expected 'receive' span")
-	if ok {
-		assertAttribute(t, receiveSpan.Attributes, "messaging.system", "kafka")
-		assertAttribute(t, receiveSpan.Attributes, "messaging.operation.type", "receive")
-	}
+	require.True(t, ok, "Expected 'receive' span")
+	assertAttribute(t, receiveSpan.Attributes, "messaging.system", "kafka")
+	assertAttribute(t, receiveSpan.Attributes, "messaging.operation.type", "receive")
 
 	// Verify process span
 	processSpan, ok := spanNames["input process"]
-	assert.True(t, ok, "Expected 'input process' span")
-	if ok {
-		assertAttribute(t, processSpan.Attributes, "messaging.system", "kafka")
-		assertAttribute(t, processSpan.Attributes, "messaging.operation.type", "process")
-		assertAttribute(t, processSpan.Attributes, "messaging.destination.name", "input")
-		assertAttribute(t, processSpan.Attributes, "messaging.consumer.group.name", "test-group")
-		assert.Equal(t, trace.SpanKindConsumer, processSpan.SpanKind)
-	}
+	require.True(t, ok, "Expected 'input process' span")
+	assertAttribute(t, processSpan.Attributes, "messaging.system", "kafka")
+	assertAttribute(t, processSpan.Attributes, "messaging.operation.type", "process")
+	assertAttribute(t, processSpan.Attributes, "messaging.destination.name", "input")
+	assertAttribute(t, processSpan.Attributes, "messaging.consumer.group.name", "test-group")
+	require.Equal(t, trace.SpanKindConsumer, processSpan.SpanKind)
 
 	// Verify node execute spans exist
 	foundProcExecute := false
@@ -122,17 +108,15 @@ func TestSingleThreaded_OTel_SpanHierarchy(t *testing.T) {
 			assertAttribute(t, s.Attributes, "stream.node.type", "processor")
 		}
 	}
-	assert.True(t, foundProcExecute, "Expected 'proc execute' span")
+	require.True(t, foundProcExecute, "Expected 'proc execute' span")
 
 	// Verify publish span
 	publishSpan, ok := spanNames["output publish"]
-	assert.True(t, ok, "Expected 'output publish' span")
-	if ok {
-		assertAttribute(t, publishSpan.Attributes, "messaging.system", "kafka")
-		assertAttribute(t, publishSpan.Attributes, "messaging.operation.type", "send")
-		assertAttribute(t, publishSpan.Attributes, "messaging.destination.name", "output")
-		assert.Equal(t, trace.SpanKindProducer, publishSpan.SpanKind)
-	}
+	require.True(t, ok, "Expected 'output publish' span")
+	assertAttribute(t, publishSpan.Attributes, "messaging.system", "kafka")
+	assertAttribute(t, publishSpan.Attributes, "messaging.operation.type", "send")
+	assertAttribute(t, publishSpan.Attributes, "messaging.destination.name", "output")
+	require.Equal(t, trace.SpanKindProducer, publishSpan.SpanKind)
 }
 
 func TestSingleThreaded_OTel_Metrics(t *testing.T) {
@@ -149,18 +133,11 @@ func TestSingleThreaded_OTel_Metrics(t *testing.T) {
 
 	factory, err := task.NewTopologyTaskFactory(topo, logger.NewNoopLogger(), task.WithTelemetry(tel))
 	require.NoError(t, err)
-	config := defaultSingleThreadedConfig()
 
-	r := &SingleThreaded{
-		consumer:    client,
-		producer:    client,
-		taskManager: task.NewManager(factory, client, logger.NewNoopLogger()),
-		topology:    topo,
-		config:      config,
-		errChan:     make(chan error, 1),
-		telemetry:   tel,
-		logger:      logger.NewNoopLogger(),
-	}
+	runnerFactory := NewSingleThreadedRunner()
+	rn, err := runnerFactory(topo, factory, client, client, tel)
+	require.NoError(t, err)
+	r := rn.(*SingleThreaded)
 
 	err = client.Subscribe(topo.SourceTopics(), r)
 	require.NoError(t, err)
@@ -202,18 +179,10 @@ func TestSingleThreaded_OTel_TasksActiveMetric(t *testing.T) {
 	factory, err := task.NewTopologyTaskFactory(topo, logger.NewNoopLogger(), task.WithTelemetry(tel))
 	require.NoError(t, err)
 
-	config := defaultSingleThreadedConfig()
-
-	r := &SingleThreaded{
-		consumer:    client,
-		producer:    client,
-		taskManager: task.NewManager(factory, client, logger.NewNoopLogger()),
-		topology:    topo,
-		config:      config,
-		errChan:     make(chan error, 1),
-		telemetry:   tel,
-		logger:      logger.NewNoopLogger(),
-	}
+	runnerFactory := NewSingleThreadedRunner()
+	rn, err := runnerFactory(topo, factory, client, client, tel)
+	require.NoError(t, err)
+	r := rn.(*SingleThreaded)
 
 	// OnAssigned should increment tasks.active
 	r.OnAssigned(context.Background(), []kafka.TopicPartition{{Topic: "input", Partition: 0}})
@@ -242,18 +211,10 @@ func TestSingleThreaded_OTel_ContextPropagation(t *testing.T) {
 	factory, err := task.NewTopologyTaskFactory(topo, logger.NewNoopLogger(), task.WithTelemetry(tel))
 	require.NoError(t, err)
 
-	config := defaultSingleThreadedConfig()
-
-	r := &SingleThreaded{
-		consumer:    client,
-		producer:    client,
-		taskManager: task.NewManager(factory, client, logger.NewNoopLogger()),
-		topology:    topo,
-		config:      config,
-		errChan:     make(chan error, 1),
-		telemetry:   tel,
-		logger:      logger.NewNoopLogger(),
-	}
+	runnerFactory := NewSingleThreadedRunner()
+	rn, err := runnerFactory(topo, factory, client, client, tel)
+	require.NoError(t, err)
+	r := rn.(*SingleThreaded)
 
 	err = client.Subscribe(topo.SourceTopics(), r)
 	require.NoError(t, err)
@@ -265,7 +226,7 @@ func TestSingleThreaded_OTel_ContextPropagation(t *testing.T) {
 	spans := spanExporter.GetSpans()
 	for _, s := range spans {
 		if s.Name == "input process" {
-			assert.Equal(
+			require.Equal(
 				t, "4bf92f3577b34da6a3ce929d0e0e4736", s.SpanContext.TraceID().String(),
 				"Process span should inherit trace ID from record headers",
 			)
@@ -280,13 +241,13 @@ func TestSingleThreaded_OTel_ContextPropagation(t *testing.T) {
 	for _, h := range produced[0].Headers {
 		if h.Key == "traceparent" {
 			foundTraceparent = true
-			assert.Contains(
+			require.Contains(
 				t, string(h.Value), "4bf92f3577b34da6a3ce929d0e0e4736",
 				"Produced record should carry the same trace ID",
 			)
 		}
 	}
-	assert.True(t, foundTraceparent, "Expected traceparent header on produced record")
+	require.True(t, foundTraceparent, "Expected traceparent header on produced record")
 }
 
 func TestPartitionedRunner_OTel_BasicSpans(t *testing.T) {
@@ -303,34 +264,7 @@ func TestPartitionedRunner_OTel_BasicSpans(t *testing.T) {
 	factory, err := task.NewTopologyTaskFactory(topo, logger.NewNoopLogger(), task.WithTelemetry(tel))
 	require.NoError(t, err)
 
-	config := defaultPartitionedConfig()
-	config.ChannelBufferSize = 10
-
-	// Use the factory function directly with telemetry config so SetTelemetry is called.
-	runnerFactory := func(
-		t2 *topology.Topology,
-		f task.Factory,
-		consumer kafka.Consumer,
-		producer kafka.Producer,
-		telemetry *streamsotel.Telemetry,
-	) (Runner, error) {
-		l := config.Logger.With("component", "runner", "runner", "partitioned")
-
-		return &PartitionedRunner{
-			consumer:    consumer,
-			producer:    producer,
-			taskManager: task.NewManager(f, producer, config.Logger),
-			topology:    t2,
-			config:      config,
-			workers:     make(map[kafka.TopicPartition]*partitionWorker),
-			pending:     make(map[kafka.TopicPartition][]kafka.ConsumerRecord),
-			paused:      make(map[kafka.TopicPartition]struct{}),
-			errCh:       make(chan error, 1),
-			logger:      l,
-			telemetry:   telemetry,
-		}, nil
-	}
-
+	runnerFactory := NewPartitionedRunner(WithChannelBufferSize(10))
 	r, err := runnerFactory(topo, factory, client, client, tel)
 	require.NoError(t, err)
 
@@ -342,8 +276,10 @@ func TestPartitionedRunner_OTel_BasicSpans(t *testing.T) {
 		done <- r.Run(ctx)
 	}()
 
-	// Wait for processing then cancel
-	time.Sleep(500 * time.Millisecond)
+	// Wait for spans to be recorded then cancel
+	require.Eventually(t, func() bool {
+		return len(spanExporter.GetSpans()) > 0
+	}, 3*time.Second, 50*time.Millisecond, "spans should be recorded")
 	cancel()
 	<-done
 
@@ -355,9 +291,9 @@ func TestPartitionedRunner_OTel_BasicSpans(t *testing.T) {
 		spanNames[s.Name] = true
 	}
 
-	assert.True(t, spanNames["receive"], "Expected 'receive' span")
-	assert.True(t, spanNames["input process"], "Expected 'input process' span")
-	assert.True(t, spanNames["output publish"], "Expected 'output publish' span")
+	require.True(t, spanNames["receive"], "Expected 'receive' span")
+	require.True(t, spanNames["input process"], "Expected 'input process' span")
+	require.True(t, spanNames["output publish"], "Expected 'output publish' span")
 }
 
 // Helper functions
@@ -366,14 +302,14 @@ func assertAttribute(t *testing.T, attrs []attribute.KeyValue, key, expected str
 	t.Helper()
 	for _, a := range attrs {
 		if string(a.Key) == key {
-			assert.Equal(
+			require.Equal(
 				t, expected, a.Value.AsString(),
 				"Attribute %s should be %q", key, expected,
 			)
 			return
 		}
 	}
-	t.Errorf("Attribute %q not found in span attributes", key)
+	t.Fatalf("Attribute %q not found in span attributes", key)
 }
 
 func collectMetrics(rm metricdata.ResourceMetrics) map[string]bool {
@@ -388,5 +324,5 @@ func collectMetrics(rm metricdata.ResourceMetrics) map[string]bool {
 
 func assertMetricExists(t *testing.T, metrics map[string]bool, name string) {
 	t.Helper()
-	assert.True(t, metrics[name], "Expected metric %q to be recorded", name)
+	require.True(t, metrics[name], "Expected metric %q to be recorded", name)
 }
