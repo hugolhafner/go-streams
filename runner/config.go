@@ -33,7 +33,7 @@ func defaultBaseConfig() BaseConfig {
 	l := logger.NewNoopLogger()
 	return BaseConfig{
 		Logger:           l,
-		ErrorHandler:     errorhandler.LogAndFail(l),
+		ErrorHandler:     errorhandler.SilentFail(),
 		PollErrorBackoff: backoff.NewFixed(time.Second),
 	}
 }

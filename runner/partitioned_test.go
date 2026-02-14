@@ -1023,7 +1023,7 @@ func TestPartitionWorker_StopSkipsDrain(t *testing.T) {
 		assert.True(t, worker.TrySubmit(context.Background(), r))
 	}
 
-	// Stop (revocation path) — should return quickly without draining
+	// Stop (revocation path) - should return quickly without draining
 	worker.Stop()
 
 	err := worker.WaitForStop(2 * time.Second)
@@ -1060,7 +1060,7 @@ func TestPartitionWorker_ContextCancelDrains(t *testing.T) {
 	// Let the worker process at least one record
 	time.Sleep(50 * time.Millisecond)
 
-	// Cancel context (shutdown path) — should drain remaining records
+	// Cancel context (shutdown path) - should drain remaining records
 	cancel()
 
 	err := worker.WaitForStop(5 * time.Second)
@@ -1106,7 +1106,7 @@ func TestPartitionWorker_DrainTimeoutRespected(t *testing.T) {
 	l := logger.NewNoopLogger()
 	errCh := make(chan error, 1)
 
-	// Short drain timeout — 200ms
+	// Short drain timeout - 200ms
 	worker := newPartitionWorker(
 		tp, tsk, client, client, errorhandler.LogAndContinue(l), 10, 200*time.Millisecond, errCh, l, streamsotel.Noop(),
 	)
@@ -1122,7 +1122,7 @@ func TestPartitionWorker_DrainTimeoutRespected(t *testing.T) {
 	// Let the worker pick up the record
 	time.Sleep(50 * time.Millisecond)
 
-	// Cancel context — drain should start but timeout after 200ms
+	// Cancel context - drain should start but timeout after 200ms
 	cancel()
 
 	start := time.Now()

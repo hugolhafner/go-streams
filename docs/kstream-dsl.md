@@ -47,7 +47,7 @@ s := kstream.StreamWithValueSerde(builder, "my-topic", serde.JSON[Order]())
 // s is KStream[[]byte, Order]
 ```
 
-This is the most common variant — Kafka keys are often raw bytes while values are structured data.
+This is the most common variant - Kafka keys are often raw bytes while values are structured data.
 
 ### StreamWithSerde
 

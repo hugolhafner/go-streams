@@ -59,10 +59,10 @@ func main() {
 
 ## Where to Go Next
 
-- [Getting Started](getting-started.md) — step-by-step walkthrough of your first topology
-- [KStream DSL](kstream-dsl.md) — all stream operations (`Filter`, `Map`, `Branch`, `To`, etc.)
-- [Serialization](serialization.md) — built-in and custom serdes
-- [Error Handling](error-handling.md) — retry, DLQ, and handler composition
-- [Runners](runners.md) — `SingleThreadedRunner` vs `PartitionedRunner`
-- [Observability](observability.md) — OpenTelemetry tracing and metrics
-- [Custom Processors](custom-processors.md) — implementing the `Processor` interface
+- [Getting Started](getting-started.md) - step-by-step walkthrough of your first topology
+- [KStream DSL](kstream-dsl.md) - all stream operations (`Filter`, `Map`, `Branch`, `To`, etc.)
+- [Serialization](serialization.md) - built-in and custom serdes
+- [Error Handling](error-handling.md) - retry, DLQ, and handler composition
+- [Runners](runners.md) - `SingleThreadedRunner` vs `PartitionedRunner`
+- [Observability](observability.md) - OpenTelemetry tracing and metrics
+- [Custom Processors](custom-processors.md) - implementing the `Processor` interface

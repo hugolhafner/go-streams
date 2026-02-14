@@ -42,7 +42,7 @@ Every error is classified into a phase that indicates where in the pipeline it o
 
 | Phase             | Value | Description                                          |
 |-------------------|-------|------------------------------------------------------|
-| `PhaseUnknown`    | `0`   | Zero value — uninitialized phase                     |
+| `PhaseUnknown`    | `0`   | Zero value - uninitialized phase                     |
 | `PhaseSerde`      | `1`   | Error during key/value deserialization at the source |
 | `PhaseProcessing` | `2`   | Error during processor execution                     |
 | `PhaseProduction` | `3`   | Error during sink serialization or Kafka production  |
@@ -111,10 +111,10 @@ handler := errorhandler.ActionLogger(
 
 This creates the following pipeline:
 
-1. **ActionLogger** — logs every handler decision at `Info` level
-2. **WithMaxAttempts** — retries up to 3 times with 1-second backoff
-3. When retries are exhausted, **WithDLQ** — sends to the `"dlq"` topic
-4. **LogAndContinue** — logs the error (this would normally return `Continue`, but `WithDLQ` intercepts it and returns `SendToDLQ` instead)
+1. **ActionLogger** - logs every handler decision at `Info` level
+2. **WithMaxAttempts** - retries up to 3 times with 1-second backoff
+3. When retries are exhausted, **WithDLQ** - sends to the `"dlq"` topic
+4. **LogAndContinue** - logs the error (this would normally return `Continue`, but `WithDLQ` intercepts it and returns `SendToDLQ` instead)
 
 ## Custom Handlers
 
@@ -147,7 +147,7 @@ app.RunWith(ctx, runner.NewSingleThreadedRunner(
 ))
 ```
 
-The default error handler is `LogAndContinue` with a noop logger.
+The default error handler is `SilentFail`.
 
 ## Phase-Specific Error Handlers
 

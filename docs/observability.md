@@ -151,14 +151,14 @@ All metrics are registered under the `github.com/hugolhafner/go-streams` instrum
 
 | Metric                         | Type          | Unit | Description                         |
 |--------------------------------|---------------|------|-------------------------------------|
-| `messaging.consumer.messages`  | Counter       | —    | Total records consumed              |
-| `messaging.producer.messages`  | Counter       | —    | Total records produced              |
+| `messaging.consumer.messages`  | Counter       | -    | Total records consumed              |
+| `messaging.producer.messages`  | Counter       | -    | Total records produced              |
 | `stream.poll.duration`         | Histogram     | s    | Time per `Poll()` call              |
 | `stream.process.duration`      | Histogram     | s    | End-to-end record processing time   |
 | `stream.produce.duration`      | Histogram     | s    | Time per `Send()` call to Kafka     |
-| `stream.errors`                | Counter       | —    | Processing errors encountered       |
-| `stream.error_handler.actions` | Counter       | —    | Error handler decisions             |
-| `stream.tasks.active`          | UpDownCounter | —    | Currently active tasks (partitions) |
+| `stream.errors`                | Counter       | -    | Processing errors encountered       |
+| `stream.error_handler.actions` | Counter       | -    | Error handler decisions             |
+| `stream.tasks.active`          | UpDownCounter | -    | Currently active tasks (partitions) |
 
 ### Metric Attributes
 
@@ -181,9 +181,9 @@ The `stream.process.status` attribute tracks the outcome of each record:
 | Status    | Meaning                                                |
 |-----------|--------------------------------------------------------|
 | `success` | Record processed without error                         |
-| `dropped` | Error handler returned `Continue` — record was skipped |
+| `dropped` | Error handler returned `Continue` - record was skipped |
 | `dlq`     | Record was sent to a dead letter queue                 |
-| `failed`  | Error handler returned `Fail` — runner stopped         |
+| `failed`  | Error handler returned `Fail` - runner stopped         |
 | `error`   | An error occurred (used for poll/produce status)       |
 
 ## Integration with Error Handling
@@ -196,7 +196,7 @@ Observability works alongside the [error handling](error-handling.md) system. Wh
 4. The `stream.error_handler.actions` counter increments with the action type and `stream.error.phase`
 5. The `stream.process.status` attribute reflects the final outcome (`dropped`, `dlq`, or `failed`)
 
-The `stream.error.phase` attribute lets you distinguish between deserialization, processing, and production errors in your dashboards and alerts — for example, alerting on poison pills separately from sink failures.
+The `stream.error.phase` attribute lets you distinguish between deserialization, processing, and production errors in your dashboards and alerts - for example, alerting on poison pills separately from sink failures.
 
 ### DLQ Headers
 

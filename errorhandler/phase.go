@@ -8,7 +8,7 @@ import (
 type ErrorPhase int
 
 const (
-	PhaseUnknown    ErrorPhase = iota // zero value — uninitialized phase
+	PhaseUnknown    ErrorPhase = iota // zero value - uninitialized phase
 	PhaseSerde                        // error during key/value serialization or deserialization
 	PhaseProcessing                   // error during processor execution
 	PhaseProduction                   // error during sink production

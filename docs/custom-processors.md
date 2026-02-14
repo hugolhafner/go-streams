@@ -12,9 +12,9 @@ type Processor[KIn, VIn, KOut, VOut any] interface {
 }
 ```
 
-- **Init** — called once when the processor is created. Receives a `Context` for forwarding records downstream.
-- **Process** — called for each incoming record. Use the context from `Init` to forward results.
-- **Close** — called when the task is shut down. Clean up resources here.
+- **Init** - called once when the processor is created. Receives a `Context` for forwarding records downstream.
+- **Process** - called for each incoming record. Use the context from `Init` to forward results.
+- **Close** - called when the task is shut down. Clean up resources here.
 
 ## Context: Forwarding Records
 
@@ -46,7 +46,7 @@ When forwarding, preserve the `Metadata` from the input record unless you have a
 
 ## Supplier Pattern
 
-Processors are created via a `Supplier` — a factory function:
+Processors are created via a `Supplier` - a factory function:
 
 ```go
 type Supplier[KIn, VIn, KOut, VOut any] func() Processor[KIn, VIn, KOut, VOut]
@@ -127,6 +127,6 @@ kstream.ToWithValueSerde(enriched, "enriched-orders", serde.JSON[EnrichedOrder](
 
 - Each task (partition) gets its own processor instance via the supplier
 - Store the `Context` from `Init` to use in `Process`
-- Always forward with `record.Record` — preserve `Metadata` for offset tracking
-- Return errors from `Process` — the configured [error handler](error-handling.md) will decide the action
+- Always forward with `record.Record` - preserve `Metadata` for offset tracking
+- Return errors from `Process` - the configured [error handler](error-handling.md) will decide the action
 - Clean up resources (DB connections, files, etc.) in `Close`

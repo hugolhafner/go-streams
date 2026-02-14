@@ -37,7 +37,7 @@ type Order struct {
 orders := kstream.StreamWithValueSerde(builder, "orders", serde.JSON[Order]())
 ```
 
-This creates a `KStream[[]byte, Order]` — keys remain raw bytes, values are deserialized as JSON.
+This creates a `KStream[[]byte, Order]` - keys remain raw bytes, values are deserialized as JSON.
 
 ### 3. Add Processing Steps
 
@@ -151,6 +151,6 @@ See [`examples/kgo_complete.go`](https://github.com/hugolhafner/go-streams/blob/
 
 ## Next Steps
 
-- [KStream DSL](kstream-dsl.md) — all available stream operations
-- [Serialization](serialization.md) — built-in serdes and writing custom ones
-- [Error Handling](error-handling.md) — retries, dead letter queues, and handler composition
+- [KStream DSL](kstream-dsl.md) - all available stream operations
+- [Serialization](serialization.md) - built-in serdes and writing custom ones
+- [Error Handling](error-handling.md) - retries, dead letter queues, and handler composition

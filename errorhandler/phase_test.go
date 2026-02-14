@@ -96,19 +96,21 @@ func TestPhaseRouter_FallsBackToDefaultHandler(t *testing.T) {
 	}
 
 	for _, phase := range tests {
-		t.Run(phase.String(), func(t *testing.T) {
-			action := router.Handle(context.Background(), ecWithPhase(phase))
-			assert.IsType(t, errorhandler.ActionRetry{}, action)
-		})
+		t.Run(
+			phase.String(), func(t *testing.T) {
+				action := router.Handle(context.Background(), ecWithPhase(phase))
+				assert.IsType(t, errorhandler.ActionRetry{}, action)
+			},
+		)
 	}
 }
 
 func TestPhaseRouter_UnknownPhaseFallsBackToDefault(t *testing.T) {
 	router := errorhandler.NewPhaseRouter(
 		actionHandler(errorhandler.ActionContinue{}),
-		actionHandler(errorhandler.ActionFail{}),       // serde — should NOT be selected
-		actionHandler(errorhandler.ActionRetry{}),      // processing
-		actionHandler(errorhandler.ActionContinue{}),   // production
+		actionHandler(errorhandler.ActionFail{}),     // serde - should NOT be selected
+		actionHandler(errorhandler.ActionRetry{}),    // processing
+		actionHandler(errorhandler.ActionContinue{}), // production
 	)
 
 	action := router.Handle(context.Background(), ecWithPhase(errorhandler.ErrorPhase(99)))
@@ -124,36 +126,46 @@ func TestPhaseRouter_NilDefaultUsessilentFail(t *testing.T) {
 
 func TestPhaseRouter_SpecificHandlerTakesPrecedenceOverDefault(t *testing.T) {
 	router := errorhandler.NewPhaseRouter(
-		actionHandler(errorhandler.ActionFail{}),      // default
-		actionHandler(errorhandler.ActionContinue{}),  // serde
-		actionHandler(errorhandler.ActionRetry{}),     // processing
-		actionHandler(errorhandler.ActionContinue{}),  // production
+		actionHandler(errorhandler.ActionFail{}),     // default
+		actionHandler(errorhandler.ActionContinue{}), // serde
+		actionHandler(errorhandler.ActionRetry{}),    // processing
+		actionHandler(errorhandler.ActionContinue{}), // production
 	)
 
-	t.Run("serde gets serde handler", func(t *testing.T) {
-		action := router.Handle(context.Background(), ecWithPhase(errorhandler.PhaseSerde))
-		assert.IsType(t, errorhandler.ActionContinue{}, action)
-	})
+	t.Run(
+		"serde gets serde handler", func(t *testing.T) {
+			action := router.Handle(context.Background(), ecWithPhase(errorhandler.PhaseSerde))
+			assert.IsType(t, errorhandler.ActionContinue{}, action)
+		},
+	)
 
-	t.Run("processing gets processing handler", func(t *testing.T) {
-		action := router.Handle(context.Background(), ecWithPhase(errorhandler.PhaseProcessing))
-		assert.IsType(t, errorhandler.ActionRetry{}, action)
-	})
+	t.Run(
+		"processing gets processing handler", func(t *testing.T) {
+			action := router.Handle(context.Background(), ecWithPhase(errorhandler.PhaseProcessing))
+			assert.IsType(t, errorhandler.ActionRetry{}, action)
+		},
+	)
 
-	t.Run("production gets production handler", func(t *testing.T) {
-		action := router.Handle(context.Background(), ecWithPhase(errorhandler.PhaseProduction))
-		assert.IsType(t, errorhandler.ActionContinue{}, action)
-	})
+	t.Run(
+		"production gets production handler", func(t *testing.T) {
+			action := router.Handle(context.Background(), ecWithPhase(errorhandler.PhaseProduction))
+			assert.IsType(t, errorhandler.ActionContinue{}, action)
+		},
+	)
 
-	t.Run("unknown phase gets default handler", func(t *testing.T) {
-		action := router.Handle(context.Background(), ecWithPhase(errorhandler.PhaseUnknown))
-		assert.IsType(t, errorhandler.ActionFail{}, action)
-	})
+	t.Run(
+		"unknown phase gets default handler", func(t *testing.T) {
+			action := router.Handle(context.Background(), ecWithPhase(errorhandler.PhaseUnknown))
+			assert.IsType(t, errorhandler.ActionFail{}, action)
+		},
+	)
 
-	t.Run("unrecognized phase gets default handler", func(t *testing.T) {
-		action := router.Handle(context.Background(), ecWithPhase(errorhandler.ErrorPhase(42)))
-		assert.IsType(t, errorhandler.ActionFail{}, action)
-	})
+	t.Run(
+		"unrecognized phase gets default handler", func(t *testing.T) {
+			action := router.Handle(context.Background(), ecWithPhase(errorhandler.ErrorPhase(42)))
+			assert.IsType(t, errorhandler.ActionFail{}, action)
+		},
+	)
 }
 
 func TestPhaseRouter_PassesErrorContextToHandler(t *testing.T) {
