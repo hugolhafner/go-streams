@@ -46,6 +46,13 @@ func WithCommitError(err error) Option {
 	}
 }
 
+// WithFlushError configures an error to be returned by Flush.
+func WithFlushError(err error) Option {
+	return func(c *Client) {
+		c.flushErr = err
+	}
+}
+
 // WithPingError configures an error to be returned by Ping.
 func WithPingError(err error) Option {
 	return func(c *Client) {

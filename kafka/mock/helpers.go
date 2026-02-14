@@ -63,9 +63,31 @@ func (b *RecordBuilder) WithLeaderEpoch(epoch int32) *RecordBuilder {
 	return b
 }
 
+// WithTopic sets the record's topic.
+func (b *RecordBuilder) WithTopic(topic string) *RecordBuilder {
+	b.record.Topic = topic
+	return b
+}
+
+// WithPartition sets the record's partition.
+func (b *RecordBuilder) WithPartition(partition int32) *RecordBuilder {
+	b.record.Partition = partition
+	return b
+}
+
 // Build returns the constructed ConsumerRecord.
 func (b *RecordBuilder) Build() kafka.ConsumerRecord {
 	return b.record
+}
+
+// ConsumerRecord creates a ConsumerRecord with topic, partition, offset, key, and value.
+func ConsumerRecord(topic string, partition int32, offset int64, key, value string) kafka.ConsumerRecord {
+	return Record(key, value).
+		WithTopic(topic).
+		WithPartition(partition).
+		WithOffset(offset).
+		WithLeaderEpoch(1).
+		Build()
 }
 
 // SimpleRecord creates a ConsumerRecord with just key and value as strings.

@@ -6,7 +6,6 @@ import (
 	"context"
 	"errors"
 	"testing"
-	"time"
 
 	"github.com/hugolhafner/go-streams/kafka"
 	"github.com/hugolhafner/go-streams/kafka/mock"
@@ -51,6 +50,7 @@ func (p *forwardingProcessor[K, V]) Close() error {
 }
 
 func TestContext_Forward_PropagatesDownstreamError(t *testing.T) {
+	t.Parallel()
 	topo := topology.New()
 	topo.AddSource(
 		"source", "input",
@@ -88,10 +88,9 @@ func TestContext_Forward_PropagatesDownstreamError(t *testing.T) {
 
 	tsk, err := factory.CreateTask(tp, producer)
 	require.NoError(t, err)
-	//nolint:errcheck
-	defer tsk.Close()
+	t.Cleanup(func() { _ = tsk.Close() })
 
-	rec := newTestConsumerRecord("input", 0, 0, "key", "value")
+	rec := mockkafka.ConsumerRecord("input", 0, 0, "key", "value")
 	err = tsk.Process(context.Background(), rec)
 
 	require.Error(t, err)
@@ -99,6 +98,7 @@ func TestContext_Forward_PropagatesDownstreamError(t *testing.T) {
 }
 
 func TestContext_Forward_MultipleChildren_StopsOnFirstError(t *testing.T) {
+	t.Parallel()
 	topo := topology.New()
 	topo.AddSource(
 		"source", "input",
@@ -136,10 +136,9 @@ func TestContext_Forward_MultipleChildren_StopsOnFirstError(t *testing.T) {
 	tp := kafka.TopicPartition{Topic: "input", Partition: 0}
 	tsk, err := factory.CreateTask(tp, producer)
 	require.NoError(t, err)
-	//nolint:errcheck
-	defer tsk.Close()
+	t.Cleanup(func() { _ = tsk.Close() })
 
-	rec := newTestConsumerRecord("input", 0, 0, "key", "value")
+	rec := mockkafka.ConsumerRecord("input", 0, 0, "key", "value")
 	err = tsk.Process(context.Background(), rec)
 
 	require.Error(t, err)
@@ -148,6 +147,7 @@ func TestContext_Forward_MultipleChildren_StopsOnFirstError(t *testing.T) {
 }
 
 func TestContext_Forward_WrapsErrorWithNodeInfo(t *testing.T) {
+	t.Parallel()
 	// Test that Forward wraps errors with context about which node failed
 
 	topo := topology.New()
@@ -188,10 +188,9 @@ func TestContext_Forward_WrapsErrorWithNodeInfo(t *testing.T) {
 
 	tsk, err := factory.CreateTask(tp, producer)
 	require.NoError(t, err)
-	//nolint:errcheck
-	defer tsk.Close()
+	t.Cleanup(func() { _ = tsk.Close() })
 
-	rec := newTestConsumerRecord("input", 0, 0, "key", "value")
+	rec := mockkafka.ConsumerRecord("input", 0, 0, "key", "value")
 	err = tsk.Process(context.Background(), rec)
 
 	require.Error(t, err)
@@ -201,6 +200,7 @@ func TestContext_Forward_WrapsErrorWithNodeInfo(t *testing.T) {
 }
 
 func TestContext_ForwardTo_PropagatesError(t *testing.T) {
+	t.Parallel()
 	// Test that ForwardTo properly propagates errors from named children
 	topo := topology.New()
 	topo.AddSource(
@@ -246,10 +246,9 @@ func TestContext_ForwardTo_PropagatesError(t *testing.T) {
 
 	tsk, err := factory.CreateTask(tp, producer)
 	require.NoError(t, err)
-	//nolint:errcheck
-	defer tsk.Close()
+	t.Cleanup(func() { _ = tsk.Close() })
 
-	rec := newTestConsumerRecord("input", 0, 0, "key", "value")
+	rec := mockkafka.ConsumerRecord("input", 0, 0, "key", "value")
 	err = tsk.Process(context.Background(), rec)
 
 	require.Error(t, err)
@@ -257,6 +256,7 @@ func TestContext_ForwardTo_PropagatesError(t *testing.T) {
 }
 
 func TestContext_ForwardTo_UnknownChildReturnsError(t *testing.T) {
+	t.Parallel()
 	// Test that ForwardTo returns an error when the child name is not found
 	topo := topology.New()
 	topo.AddSource(
@@ -285,24 +285,11 @@ func TestContext_ForwardTo_UnknownChildReturnsError(t *testing.T) {
 
 	tsk, err := factory.CreateTask(tp, producer)
 	require.NoError(t, err)
-	//nolint:errcheck
-	defer tsk.Close()
+	t.Cleanup(func() { _ = tsk.Close() })
 
-	rec := newTestConsumerRecord("input", 0, 0, "key", "value")
+	rec := mockkafka.ConsumerRecord("input", 0, 0, "key", "value")
 	err = tsk.Process(context.Background(), rec)
 
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "unknown child name")
-}
-
-func newTestConsumerRecord(topic string, partition int32, offset int64, key, value string) kafka.ConsumerRecord {
-	return kafka.ConsumerRecord{
-		Topic:       topic,
-		Partition:   partition,
-		Offset:      offset,
-		Key:         []byte(key),
-		Value:       []byte(value),
-		Timestamp:   time.Now(),
-		LeaderEpoch: 1,
-	}
 }

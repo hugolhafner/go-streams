@@ -70,6 +70,7 @@ func (r *PhaseRouter) Handle(ctx context.Context, ec ErrorContext) Action {
 		if r.productionHandler != nil {
 			return r.productionHandler.Handle(ctx, ec)
 		}
+	case PhaseUnknown:
 	default:
 	}
 

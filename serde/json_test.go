@@ -10,6 +10,7 @@ import (
 )
 
 func TestJsonSerde_Serialise(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name   string
 		input  any
@@ -38,6 +39,7 @@ func TestJsonSerde_Serialise(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(
 			tt.name, func(t *testing.T) {
+				t.Parallel()
 				s := serde.JSON[any]()
 				output, err := s.Serialise("test-topic", tt.input)
 				if tt.expect == `` {
@@ -53,6 +55,7 @@ func TestJsonSerde_Serialise(t *testing.T) {
 }
 
 func TestJsonSerde_Deserialise(t *testing.T) {
+	t.Parallel()
 	type Person struct {
 		Name string `json:"name"`
 		Age  int    `json:"age"`
@@ -84,6 +87,7 @@ func TestJsonSerde_Deserialise(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(
 			tt.name, func(t *testing.T) {
+				t.Parallel()
 				s := serde.JSON[Person]()
 				output, err := s.Deserialise("test-topic", []byte(tt.input))
 				if tt.wantErr {

@@ -43,6 +43,7 @@ type Client struct {
 	sendErr   func(topic string, key, value []byte) error
 	pollErr   func() error
 	commitErr func() error
+	flushErr  error
 	pingErr   error
 
 	groupID string
@@ -266,14 +267,17 @@ func (c *Client) Send(ctx context.Context, topic string, key, value []byte, head
 }
 
 // Flush is a no-op for the mock client since Send is synchronous.
-// It respects context cancellation for realistic behavior.
+// It respects context cancellation and flushErr for realistic behavior.
 func (c *Client) Flush(ctx context.Context) error {
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
 	default:
-		return nil
 	}
+
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.flushErr
 }
 
 // Ping checks if the mock client is operational.
@@ -416,6 +420,15 @@ func (c *Client) SetCommitErrorFunc(fn func() error) {
 	defer c.mu.Unlock()
 
 	c.commitErr = fn
+}
+
+// SetFlushError configures an error to be returned by Flush.
+// Pass nil to clear the error.
+func (c *Client) SetFlushError(err error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.flushErr = err
 }
 
 // SetPingError configures an error to be returned by Ping.

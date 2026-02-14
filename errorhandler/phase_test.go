@@ -8,11 +8,11 @@ import (
 
 	"github.com/hugolhafner/go-streams/errorhandler"
 	"github.com/hugolhafner/go-streams/kafka"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestErrorPhase_String(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		phase    errorhandler.ErrorPhase
 		expected string
@@ -27,6 +27,7 @@ func TestErrorPhase_String(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(
 			tt.expected, func(t *testing.T) {
+				t.Parallel()
 				require.Equal(t, tt.expected, tt.phase.String())
 			},
 		)
@@ -47,6 +48,7 @@ func ecWithPhase(phase errorhandler.ErrorPhase) errorhandler.ErrorContext {
 }
 
 func TestPhaseRouter_RoutesToSerdeHandler(t *testing.T) {
+	t.Parallel()
 	router := errorhandler.NewPhaseRouter(
 		actionHandler(errorhandler.ActionFail{}),
 		actionHandler(errorhandler.ActionContinue{}), // serde
@@ -55,10 +57,11 @@ func TestPhaseRouter_RoutesToSerdeHandler(t *testing.T) {
 	)
 
 	action := router.Handle(context.Background(), ecWithPhase(errorhandler.PhaseSerde))
-	assert.IsType(t, errorhandler.ActionContinue{}, action)
+	require.IsType(t, errorhandler.ActionContinue{}, action)
 }
 
 func TestPhaseRouter_RoutesToProcessingHandler(t *testing.T) {
+	t.Parallel()
 	router := errorhandler.NewPhaseRouter(
 		actionHandler(errorhandler.ActionFail{}),
 		nil,
@@ -67,10 +70,11 @@ func TestPhaseRouter_RoutesToProcessingHandler(t *testing.T) {
 	)
 
 	action := router.Handle(context.Background(), ecWithPhase(errorhandler.PhaseProcessing))
-	assert.IsType(t, errorhandler.ActionRetry{}, action)
+	require.IsType(t, errorhandler.ActionRetry{}, action)
 }
 
 func TestPhaseRouter_RoutesToProductionHandler(t *testing.T) {
+	t.Parallel()
 	router := errorhandler.NewPhaseRouter(
 		actionHandler(errorhandler.ActionFail{}),
 		nil,
@@ -79,10 +83,11 @@ func TestPhaseRouter_RoutesToProductionHandler(t *testing.T) {
 	)
 
 	action := router.Handle(context.Background(), ecWithPhase(errorhandler.PhaseProduction))
-	assert.IsType(t, errorhandler.ActionContinue{}, action)
+	require.IsType(t, errorhandler.ActionContinue{}, action)
 }
 
 func TestPhaseRouter_FallsBackToDefaultHandler(t *testing.T) {
+	t.Parallel()
 	router := errorhandler.NewPhaseRouter(
 		actionHandler(errorhandler.ActionRetry{}), // default
 		nil, nil, nil,
@@ -98,14 +103,16 @@ func TestPhaseRouter_FallsBackToDefaultHandler(t *testing.T) {
 	for _, phase := range tests {
 		t.Run(
 			phase.String(), func(t *testing.T) {
+				t.Parallel()
 				action := router.Handle(context.Background(), ecWithPhase(phase))
-				assert.IsType(t, errorhandler.ActionRetry{}, action)
+				require.IsType(t, errorhandler.ActionRetry{}, action)
 			},
 		)
 	}
 }
 
 func TestPhaseRouter_UnknownPhaseFallsBackToDefault(t *testing.T) {
+	t.Parallel()
 	router := errorhandler.NewPhaseRouter(
 		actionHandler(errorhandler.ActionContinue{}),
 		actionHandler(errorhandler.ActionFail{}),     // serde - should NOT be selected
@@ -114,17 +121,19 @@ func TestPhaseRouter_UnknownPhaseFallsBackToDefault(t *testing.T) {
 	)
 
 	action := router.Handle(context.Background(), ecWithPhase(errorhandler.ErrorPhase(99)))
-	assert.IsType(t, errorhandler.ActionContinue{}, action)
+	require.IsType(t, errorhandler.ActionContinue{}, action)
 }
 
 func TestPhaseRouter_NilDefaultUsesSilentFail(t *testing.T) {
+	t.Parallel()
 	router := errorhandler.NewPhaseRouter(nil, nil, nil, nil)
 
 	action := router.Handle(context.Background(), ecWithPhase(errorhandler.PhaseProcessing))
-	assert.IsType(t, errorhandler.ActionFail{}, action)
+	require.IsType(t, errorhandler.ActionFail{}, action)
 }
 
 func TestPhaseRouter_SpecificHandlerTakesPrecedenceOverDefault(t *testing.T) {
+	t.Parallel()
 	router := errorhandler.NewPhaseRouter(
 		actionHandler(errorhandler.ActionFail{}),     // default
 		actionHandler(errorhandler.ActionContinue{}), // serde
@@ -134,41 +143,47 @@ func TestPhaseRouter_SpecificHandlerTakesPrecedenceOverDefault(t *testing.T) {
 
 	t.Run(
 		"serde gets serde handler", func(t *testing.T) {
+			t.Parallel()
 			action := router.Handle(context.Background(), ecWithPhase(errorhandler.PhaseSerde))
-			assert.IsType(t, errorhandler.ActionContinue{}, action)
+			require.IsType(t, errorhandler.ActionContinue{}, action)
 		},
 	)
 
 	t.Run(
 		"processing gets processing handler", func(t *testing.T) {
+			t.Parallel()
 			action := router.Handle(context.Background(), ecWithPhase(errorhandler.PhaseProcessing))
-			assert.IsType(t, errorhandler.ActionRetry{}, action)
+			require.IsType(t, errorhandler.ActionRetry{}, action)
 		},
 	)
 
 	t.Run(
 		"production gets production handler", func(t *testing.T) {
+			t.Parallel()
 			action := router.Handle(context.Background(), ecWithPhase(errorhandler.PhaseProduction))
-			assert.IsType(t, errorhandler.ActionContinue{}, action)
+			require.IsType(t, errorhandler.ActionContinue{}, action)
 		},
 	)
 
 	t.Run(
 		"unknown phase gets default handler", func(t *testing.T) {
+			t.Parallel()
 			action := router.Handle(context.Background(), ecWithPhase(errorhandler.PhaseUnknown))
-			assert.IsType(t, errorhandler.ActionFail{}, action)
+			require.IsType(t, errorhandler.ActionFail{}, action)
 		},
 	)
 
 	t.Run(
 		"unrecognized phase gets default handler", func(t *testing.T) {
+			t.Parallel()
 			action := router.Handle(context.Background(), ecWithPhase(errorhandler.ErrorPhase(42)))
-			assert.IsType(t, errorhandler.ActionFail{}, action)
+			require.IsType(t, errorhandler.ActionFail{}, action)
 		},
 	)
 }
 
 func TestPhaseRouter_PassesErrorContextToHandler(t *testing.T) {
+	t.Parallel()
 	var captured errorhandler.ErrorContext
 	captureHandler := errorhandler.HandlerFunc(
 		func(_ context.Context, ec errorhandler.ErrorContext) errorhandler.Action {
@@ -189,9 +204,9 @@ func TestPhaseRouter_PassesErrorContextToHandler(t *testing.T) {
 
 	router.Handle(context.Background(), ec)
 
-	assert.Equal(t, "test-topic", captured.Record.Topic)
-	assert.Equal(t, int32(3), captured.Record.Partition)
-	assert.Equal(t, int64(42), captured.Record.Offset)
-	assert.Equal(t, "source-1", captured.NodeName)
-	assert.Equal(t, errorhandler.PhaseSerde, captured.Phase)
+	require.Equal(t, "test-topic", captured.Record.Topic)
+	require.Equal(t, int32(3), captured.Record.Partition)
+	require.Equal(t, int64(42), captured.Record.Offset)
+	require.Equal(t, "source-1", captured.NodeName)
+	require.Equal(t, errorhandler.PhaseSerde, captured.Phase)
 }

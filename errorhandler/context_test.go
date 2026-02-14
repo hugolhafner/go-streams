@@ -13,6 +13,7 @@ import (
 )
 
 func TestNewErrorContext(t *testing.T) {
+	t.Parallel()
 	headers := []kafka.Header{
 		{Key: "header-1", Value: []byte("value-1")},
 		{Key: "header-2", Value: []byte("value-2")},
@@ -38,6 +39,7 @@ func TestNewErrorContext(t *testing.T) {
 }
 
 func TestNewErrorContext_Copy(t *testing.T) {
+	t.Parallel()
 	headers := []kafka.Header{
 		{Key: "header-1", Value: []byte("value-1")},
 		{Key: "header-2", Value: []byte("value-2")},
@@ -71,6 +73,7 @@ func TestNewErrorContext_Copy(t *testing.T) {
 }
 
 func TestErrorContext_IncrementAttempt(t *testing.T) {
+	t.Parallel()
 	ec := errorhandler.NewErrorContext(kafka.ConsumerRecord{}, nil)
 	require.Equal(t, 1, ec.Attempt)
 
@@ -82,6 +85,7 @@ func TestErrorContext_IncrementAttempt(t *testing.T) {
 }
 
 func TestErrorContext_WithError(t *testing.T) {
+	t.Parallel()
 	ec := errorhandler.NewErrorContext(kafka.ConsumerRecord{}, nil)
 	require.Nil(t, ec.Error)
 
@@ -91,6 +95,7 @@ func TestErrorContext_WithError(t *testing.T) {
 }
 
 func TestErrorContext_WithAttempt(t *testing.T) {
+	t.Parallel()
 	ec := errorhandler.NewErrorContext(kafka.ConsumerRecord{}, nil)
 	require.Equal(t, 1, ec.Attempt)
 
@@ -99,11 +104,13 @@ func TestErrorContext_WithAttempt(t *testing.T) {
 }
 
 func TestErrorContext_DefaultPhaseIsUnknown(t *testing.T) {
+	t.Parallel()
 	ec := errorhandler.NewErrorContext(kafka.ConsumerRecord{}, nil)
 	require.Equal(t, errorhandler.PhaseUnknown, ec.Phase)
 }
 
 func TestErrorContext_WithPhase(t *testing.T) {
+	t.Parallel()
 	ec := errorhandler.NewErrorContext(kafka.ConsumerRecord{}, nil)
 
 	ec = ec.WithPhase(errorhandler.PhaseSerde)
@@ -114,6 +121,7 @@ func TestErrorContext_WithPhase(t *testing.T) {
 }
 
 func TestErrorContext_WithNodeName(t *testing.T) {
+	t.Parallel()
 	ec := errorhandler.NewErrorContext(kafka.ConsumerRecord{}, nil)
 	require.Empty(t, ec.NodeName)
 

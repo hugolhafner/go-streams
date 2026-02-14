@@ -57,7 +57,7 @@ func TestE2E_OffsetCommit_ProgressesThroughTopic(t *testing.T) {
 			errCh <- app.RunWith(ctx, runner.NewSingleThreadedRunner())
 		}()
 
-		time.Sleep(startupWait)
+		waitForGroupMembers(t, broker, groupID, 1, eventualWait)
 
 		batch1 := map[string]string{
 			"batch1-key1": "first",
@@ -113,7 +113,7 @@ func TestE2E_OffsetCommit_ProgressesThroughTopic(t *testing.T) {
 			errCh <- app.RunWith(ctx, runner.NewSingleThreadedRunner())
 		}()
 
-		time.Sleep(startupWait)
+		waitForGroupMembers(t, broker, groupID, 1, eventualWait)
 
 		batch2 := map[string]string{
 			"batch2-key1": "fourth",
@@ -121,14 +121,23 @@ func TestE2E_OffsetCommit_ProgressesThroughTopic(t *testing.T) {
 		}
 		produceRecords(t, broker, inputTopic, batch2)
 
-		time.Sleep(3 * time.Second) // Give time for processing
-
 		allRecords := consumeAsMap(t, broker, outputTopic, testGroupID(t, "verifier2"), 5, consumeWait)
 
 		require.Len(t, allRecords, 5, "expected exactly 5 unique records in output topic (3 from old, 2 from new)")
 
-		offsets := getCommittedOffsets(t, broker, groupID)
-		require.GreaterOrEqual(t, offsets[inputTopic][0], int64(5))
+		eventually(
+			t, func() bool {
+				offsets := getCommittedOffsets(t, broker, groupID)
+				if offsets == nil {
+					return false
+				}
+				topicOffsets, ok := offsets[inputTopic]
+				if !ok {
+					return false
+				}
+				return topicOffsets[0] >= 5
+			}, 15*time.Second, "offsets not committed to >= 5",
+		)
 
 		cancel()
 		waitForShutdown(t, errCh, shutdownWait)
@@ -172,7 +181,7 @@ func TestE2E_OffsetCommit_MultiplePartitions(t *testing.T) {
 		errCh <- app.RunWith(ctx, runner.NewSingleThreadedRunner())
 	}()
 
-	time.Sleep(startupWait)
+	waitForGroupMembers(t, broker, groupID, 1, eventualWait)
 
 	testData := map[string]string{
 		"a": "val-a", "b": "val-b", "c": "val-c",

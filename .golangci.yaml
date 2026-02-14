@@ -2,3 +2,25 @@ version: "2"
 linters:
   disable:
     - unused
+  enable:
+    - tparallel
+    - thelper
+    - testifylint
+    - errname
+    - errorlint
+    - fatcontext
+    - gocritic
+#    - revive
+    - iface
+    - importas
+    - mirror
+    - perfsprint
+    - staticcheck
+    - tparallel
+    - exhaustive
+
+formatters:
+  enable:
+    - gofmt
+    - gci
+    - goimports

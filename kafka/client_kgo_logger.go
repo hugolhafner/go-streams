@@ -41,6 +41,8 @@ func mapToKgoLevel(level logger.LogLevel) kgo.LogLevel {
 
 func mapFromKgoLevel(level kgo.LogLevel) logger.LogLevel {
 	switch level {
+	case kgo.LogLevelNone:
+		return logger.DebugLevel
 	case kgo.LogLevelDebug:
 		return logger.DebugLevel
 	case kgo.LogLevelInfo:

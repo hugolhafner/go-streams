@@ -133,7 +133,7 @@ func (k *KgoClient) Subscribe(topics []string, rebalanceCb RebalanceCallback) er
 	defer k.mu.Unlock()
 
 	if k.subscribed {
-		return fmt.Errorf("already subscribed")
+		return errors.New("already subscribed")
 	}
 
 	k.rebalanceCb = rebalanceCb

@@ -3,9 +3,12 @@ module github.com/hugolhafner/go-streams
 go 1.25.4
 
 require (
+	github.com/Shopify/toxiproxy/v2 v2.12.0
 	github.com/hugolhafner/dskit v0.3.1
 	github.com/stretchr/testify v1.11.1
+	github.com/testcontainers/testcontainers-go v0.40.0
 	github.com/testcontainers/testcontainers-go/modules/redpanda v0.40.0
+	github.com/testcontainers/testcontainers-go/modules/toxiproxy v0.40.0
 	github.com/twmb/franz-go v1.20.6
 	github.com/twmb/franz-go/pkg/kadm v1.17.2
 	go.opentelemetry.io/otel v1.40.0
@@ -60,7 +63,6 @@ require (
 	github.com/shirou/gopsutil/v4 v4.25.6 // indirect
 	github.com/sirupsen/logrus v1.9.3 // indirect
 	github.com/stretchr/objx v0.5.2 // indirect
-	github.com/testcontainers/testcontainers-go v0.40.0 // indirect
 	github.com/tklauser/go-sysconf v0.3.12 // indirect
 	github.com/tklauser/numcpus v0.6.1 // indirect
 	github.com/twmb/franz-go/pkg/kmsg v1.12.0 // indirect

@@ -13,6 +13,7 @@ import (
 )
 
 func TestProtobufSerde_Serialise(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name  string
 		input *wrapperspb.StringValue
@@ -34,6 +35,7 @@ func TestProtobufSerde_Serialise(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(
 			tt.name, func(t *testing.T) {
+				t.Parallel()
 				s := serde.Protobuf[*wrapperspb.StringValue]()
 				output, err := s.Serialise("test-topic", tt.input)
 				require.NoError(t, err)
@@ -47,6 +49,7 @@ func TestProtobufSerde_Serialise(t *testing.T) {
 }
 
 func TestProtobufSerde_Deserialise(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name    string
 		input   *wrapperspb.StringValue
@@ -65,6 +68,7 @@ func TestProtobufSerde_Deserialise(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(
 			tt.name, func(t *testing.T) {
+				t.Parallel()
 				s := serde.Protobuf[*wrapperspb.StringValue]()
 
 				data, err := proto.Marshal(tt.input)
@@ -84,12 +88,14 @@ func TestProtobufSerde_Deserialise(t *testing.T) {
 }
 
 func TestProtobufSerde_Deserialise_InvalidData(t *testing.T) {
+	t.Parallel()
 	s := serde.Protobuf[*wrapperspb.StringValue]()
 	_, err := s.Deserialise("test-topic", []byte("not valid protobuf \xff\xfe"))
 	require.Error(t, err)
 }
 
 func TestProtobufSerde_Roundtrip(t *testing.T) {
+	t.Parallel()
 	s := serde.Protobuf[*wrapperspb.StringValue]()
 	original := wrapperspb.String("roundtrip test")
 
@@ -102,6 +108,7 @@ func TestProtobufSerde_Roundtrip(t *testing.T) {
 }
 
 func TestProtobufSerde_Timestamp(t *testing.T) {
+	t.Parallel()
 	s := serde.Protobuf[*timestamppb.Timestamp]()
 	original := timestamppb.Now()
 

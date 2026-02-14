@@ -10,6 +10,7 @@ import (
 )
 
 func TestStringSerde_Serialise(t *testing.T) {
+	t.Parallel()
 	s := serde.String()
 	input := "hello world"
 	output, err := s.Serialise("test-topic", input)
@@ -18,6 +19,7 @@ func TestStringSerde_Serialise(t *testing.T) {
 }
 
 func TestStringSerde_Deserialise(t *testing.T) {
+	t.Parallel()
 	s := serde.String()
 	input := []byte("hello world")
 	output, err := s.Deserialise("test-topic", input)

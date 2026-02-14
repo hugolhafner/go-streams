@@ -97,6 +97,7 @@ func (t *Topology) AddNode(node Node, parents ...string) {
 		t.sources = append(t.sources, node.Name())
 	case NodeTypeSink:
 		t.sinks = append(t.sinks, node.Name())
+	case NodeTypeProcessor:
 	default:
 	}
 
@@ -207,11 +208,11 @@ func (t *Topology) printNode(name, prefix string, visited map[string]bool) {
 	msg := fmt.Sprintf("%s- %s (%s", prefix, name, node.Type().String())
 	if node.Type() == NodeTypeSource {
 		if sn, ok := node.(*sourceNode); ok {
-			msg += fmt.Sprintf(", topic=%s", sn.topic)
+			msg += ", topic=" + sn.topic
 		}
 	} else if node.Type() == NodeTypeSink {
 		if sn, ok := node.(*sinkNode); ok {
-			msg += fmt.Sprintf(", topic=%s", sn.topic)
+			msg += ", topic=%s" + sn.topic
 		}
 	}
 	msg += ")"

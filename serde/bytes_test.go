@@ -10,6 +10,7 @@ import (
 )
 
 func TestBytesSerde_Serialise(t *testing.T) {
+	t.Parallel()
 	s := serde.Bytes()
 	input := []byte{0x01, 0x02, 0x03}
 	output, err := s.Serialise("test-topic", input)
@@ -18,6 +19,7 @@ func TestBytesSerde_Serialise(t *testing.T) {
 }
 
 func TestBytesSerde_Deserialise(t *testing.T) {
+	t.Parallel()
 	s := serde.Bytes()
 	input := []byte{0x04, 0x05, 0x06}
 	output, err := s.Deserialise("test-topic", input)

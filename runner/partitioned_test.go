@@ -22,7 +22,6 @@ import (
 	"github.com/hugolhafner/go-streams/serde"
 	"github.com/hugolhafner/go-streams/task"
 	"github.com/hugolhafner/go-streams/topology"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -433,7 +432,10 @@ func TestPartitionedRunner_RebalanceAssign(t *testing.T) {
 		errCh <- r.Run(ctx)
 	}()
 
-	time.Sleep(100 * time.Millisecond)
+	// Wait for runner to subscribe before triggering assignment
+	require.Eventually(t, func() bool {
+		return len(client.Subscriptions()) > 0
+	}, 3*time.Second, 10*time.Millisecond, "runner should subscribe")
 
 	// Manually trigger assignment of new partitions
 	client.TriggerAssign(
@@ -443,10 +445,10 @@ func TestPartitionedRunner_RebalanceAssign(t *testing.T) {
 		},
 	)
 
-	time.Sleep(100 * time.Millisecond)
-
 	// Verify workers were created
-	require.Equal(t, 2, pr.WorkerCount())
+	require.Eventually(t, func() bool {
+		return pr.WorkerCount() == 2
+	}, 3*time.Second, 10*time.Millisecond, "workers should be created for assigned partitions")
 
 	cancel()
 
@@ -488,10 +490,10 @@ func TestPartitionedRunner_RebalanceRevoke(t *testing.T) {
 		errCh <- r.Run(ctx)
 	}()
 
-	time.Sleep(300 * time.Millisecond)
-
-	// Verify initial workers
-	require.Equal(t, 2, pr.WorkerCount())
+	// Wait for initial workers
+	require.Eventually(t, func() bool {
+		return pr.WorkerCount() == 2
+	}, 3*time.Second, 50*time.Millisecond, "initial workers should be created")
 
 	// Trigger revocation of one partition
 	client.TriggerRevoke(
@@ -500,10 +502,10 @@ func TestPartitionedRunner_RebalanceRevoke(t *testing.T) {
 		},
 	)
 
-	time.Sleep(500 * time.Millisecond)
-
-	// Verify worker was removed
-	require.Equal(t, 1, pr.WorkerCount())
+	// Wait for worker to be removed
+	require.Eventually(t, func() bool {
+		return pr.WorkerCount() == 1
+	}, 3*time.Second, 50*time.Millisecond, "worker should be removed after revoke")
 
 	cancel()
 
@@ -638,12 +640,12 @@ func TestPartitionWorker_TrySubmit(t *testing.T) {
 		streamsotel.Noop(),
 	)
 
-	assert.True(t, worker2.TrySubmit(context.Background(), r1), "first TrySubmit should succeed")
-	assert.True(t, worker2.TrySubmit(context.Background(), r2), "second TrySubmit should succeed")
-	assert.False(t, worker2.TrySubmit(context.Background(), r3), "third TrySubmit should fail (channel full)")
+	require.True(t, worker2.TrySubmit(context.Background(), r1), "first TrySubmit should succeed")
+	require.True(t, worker2.TrySubmit(context.Background(), r2), "second TrySubmit should succeed")
+	require.False(t, worker2.TrySubmit(context.Background(), r3), "third TrySubmit should fail (channel full)")
 
 	worker2.Stop()
-	assert.False(t, worker2.TrySubmit(context.Background(), r1), "TrySubmit on stopped worker should return false")
+	require.False(t, worker2.TrySubmit(context.Background(), r1), "TrySubmit on stopped worker should return false")
 }
 
 func TestPartitionedRunner_BackpressurePausesSlowPartition(t *testing.T) {
@@ -716,15 +718,10 @@ func TestPartitionedRunner_BackpressurePausesSlowPartition(t *testing.T) {
 		errCh <- r.Run(ctx)
 	}()
 
-	// Wait enough for fast partition to complete but not all slow records
-	time.Sleep(800 * time.Millisecond)
-
-	// Partition 1 (fast) should have processed all its records even though
-	// partition 0 is slow. Without backpressure, partition 1 would be starved.
-	require.GreaterOrEqual(
-		t, p1Count.Load(), int32(5),
-		"fast partition should not be starved by slow partition",
-	)
+	// Wait for fast partition to process at least 5 records while slow partition is still processing
+	require.Eventually(t, func() bool {
+		return p1Count.Load() >= 5
+	}, 3*time.Second, 50*time.Millisecond, "fast partition should not be starved by slow partition")
 
 	cancel()
 
@@ -891,19 +888,20 @@ func TestPartitionedRunner_PendingClearedOnRevoke(t *testing.T) {
 		errCh <- r.Run(ctx)
 	}()
 
-	// Wait for records to be dispatched and backpressure to kick in
-	time.Sleep(500 * time.Millisecond)
+	// Wait for backpressure to kick in
+	require.Eventually(t, func() bool {
+		return len(pr.PendingCounts()) > 0
+	}, 3*time.Second, 50*time.Millisecond, "backpressure should kick in")
 
 	// Revoke the partition
 	tp := kafka.TopicPartition{Topic: "input", Partition: 0}
 	close(gate) // Unblock the worker so it can stop cleanly
 	client.TriggerRevoke([]kafka.TopicPartition{tp})
 
-	time.Sleep(200 * time.Millisecond)
-
-	// Verify pending is cleared
-	require.Empty(t, pr.PendingCounts(), "pending should be cleared after revoke")
-	require.Empty(t, pr.PausedPartitions(), "paused should be cleared after revoke")
+	// Verify pending is cleared after revoke
+	require.Eventually(t, func() bool {
+		return len(pr.PendingCounts()) == 0 && len(pr.PausedPartitions()) == 0
+	}, 3*time.Second, 50*time.Millisecond, "pending and paused should be cleared after revoke")
 
 	cancel()
 
@@ -1020,7 +1018,7 @@ func TestPartitionWorker_StopSkipsDrain(t *testing.T) {
 	for i := 0; i < 5; i++ {
 		r := mockkafka.SimpleRecord(fmt.Sprintf("k%d", i), fmt.Sprintf("v%d", i))
 		r.Topic = "input"
-		assert.True(t, worker.TrySubmit(context.Background(), r))
+		require.True(t, worker.TrySubmit(context.Background(), r))
 	}
 
 	// Stop (revocation path) - should return quickly without draining
@@ -1054,11 +1052,13 @@ func TestPartitionWorker_ContextCancelDrains(t *testing.T) {
 	for i := 0; i < 3; i++ {
 		r := mockkafka.SimpleRecord(fmt.Sprintf("k%d", i), fmt.Sprintf("v%d", i))
 		r.Topic = "input"
-		assert.True(t, worker.TrySubmit(context.Background(), r))
+		require.True(t, worker.TrySubmit(context.Background(), r))
 	}
 
-	// Let the worker process at least one record
-	time.Sleep(50 * time.Millisecond)
+	// Wait for at least one record to be produced
+	require.Eventually(t, func() bool {
+		return len(client.ProducedRecords()) >= 1
+	}, 3*time.Second, 10*time.Millisecond, "at least one record should be produced")
 
 	// Cancel context (shutdown path) - should drain remaining records
 	cancel()
@@ -1117,10 +1117,12 @@ func TestPartitionWorker_DrainTimeoutRespected(t *testing.T) {
 	// Submit a record that will block
 	r := mockkafka.SimpleRecord("block", "v1")
 	r.Topic = "input"
-	assert.True(t, worker.TrySubmit(ctx, r))
+	require.True(t, worker.TrySubmit(ctx, r))
 
-	// Let the worker pick up the record
-	time.Sleep(50 * time.Millisecond)
+	// Wait for the worker to pick up the record from the channel
+	require.Eventually(t, func() bool {
+		return worker.QueueDepth() == 0
+	}, 3*time.Second, 10*time.Millisecond, "worker should pick up the record")
 
 	// Cancel context - drain should start but timeout after 200ms
 	cancel()

@@ -16,8 +16,10 @@ import (
 )
 
 func TestPassthroughProcessor_Process(t *testing.T) {
+	t.Parallel()
 	t.Run(
 		"should forward record unchanged", func(t *testing.T) {
+			t.Parallel()
 			ctx := processor.NewMockContext[[]byte, []byte]()
 			ctx.Mock.On("Forward", mock.Anything, mock.Anything).Return(nil)
 
@@ -37,6 +39,7 @@ func TestPassthroughProcessor_Process(t *testing.T) {
 
 	t.Run(
 		"should return forward error", func(t *testing.T) {
+			t.Parallel()
 			ctx := processor.NewMockContext[[]byte, []byte]()
 			expectedErr := fmt.Errorf("forward error")
 			ctx.Mock.On("Forward", mock.Anything, mock.Anything).Return(expectedErr)
@@ -56,8 +59,10 @@ func TestPassthroughProcessor_Process(t *testing.T) {
 }
 
 func TestPassthroughProcessor_ForwardError(t *testing.T) {
+	t.Parallel()
 	t.Run(
 		"forward error is propagated", func(t *testing.T) {
+			t.Parallel()
 			forwardErr := errors.New("forward failed")
 
 			p := builtins.NewPassthroughProcessor[int, int]()

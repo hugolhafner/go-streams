@@ -1,6 +1,7 @@
 package task
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/hugolhafner/go-streams/kafka"
@@ -46,7 +47,7 @@ func NewTopologyTaskFactory(t *topology.Topology, logger logger.Logger, opts ...
 	}
 
 	if len(sourceByTopic) == 0 {
-		return nil, fmt.Errorf("topology has no source nodes")
+		return nil, errors.New("topology has no source nodes")
 	}
 
 	factory := &topologyTaskFactory{

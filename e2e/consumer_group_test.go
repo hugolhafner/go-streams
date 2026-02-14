@@ -54,8 +54,6 @@ func TestE2E_ConsumerGroup_SingleConsumer(t *testing.T) {
 		errCh <- app.RunWith(ctx, runner.NewSingleThreadedRunner())
 	}()
 
-	time.Sleep(3 * time.Second)
-
 	waitForGroupMembers(t, broker, groupID, 1, eventualWait)
 
 	testData := map[string]string{
@@ -111,7 +109,6 @@ func TestE2E_ConsumerGroup_RebalanceOnJoin(t *testing.T) {
 		errCh1 <- app1.RunWith(ctx1, runner.NewSingleThreadedRunner())
 	}()
 
-	time.Sleep(3 * time.Second)
 	waitForGroupMembers(t, broker, groupID, 1, eventualWait)
 
 	client2, err := kafka.NewKgoClient(
@@ -218,7 +215,8 @@ func TestE2E_ConsumerGroup_RebalanceOnLeave(t *testing.T) {
 	}
 	produceRecords(t, broker, inputTopic, batch1)
 
-	time.Sleep(3 * time.Second)
+	// Wait for batch1 to be processed before stopping app2
+	consumeRecords(t, broker, outputTopic, testGroupID(t, "batch1-verifier"), len(batch1), consumeWait)
 
 	cancel2()
 	client2.Close()
@@ -232,8 +230,6 @@ func TestE2E_ConsumerGroup_RebalanceOnLeave(t *testing.T) {
 		"batch2-d": "eighth",
 	}
 	produceRecords(t, broker, inputTopic, batch2)
-
-	time.Sleep(3 * time.Second)
 
 	totalRecords := len(batch1) + len(batch2)
 	records := consumeRecords(t, broker, outputTopic, testGroupID(t, "verifier"), totalRecords, consumeWait)
@@ -292,7 +288,7 @@ func TestE2E_ConsumerGroup_ContinuousProcessingDuringRebalance(t *testing.T) {
 		_ = app1.RunWith(ctx1, runner.NewSingleThreadedRunner())
 	}()
 
-	time.Sleep(3 * time.Second)
+	waitForGroupMembers(t, broker, groupID, 1, eventualWait)
 
 	producerCtx, producerCancel := context.WithCancel(context.Background())
 	defer producerCancel()
@@ -318,7 +314,8 @@ func TestE2E_ConsumerGroup_ContinuousProcessingDuringRebalance(t *testing.T) {
 		}
 	}()
 
-	time.Sleep(2 * time.Second)
+	// Wait for first member to be stable before adding second
+	waitForGroupMembers(t, broker, groupID, 1, eventualWait)
 
 	client2, err := kafka.NewKgoClient(
 		kafka.WithBootstrapServers([]string{broker}),
@@ -339,15 +336,11 @@ func TestE2E_ConsumerGroup_ContinuousProcessingDuringRebalance(t *testing.T) {
 
 	waitForGroupMembers(t, broker, groupID, 2, 30*time.Second)
 
-	time.Sleep(3 * time.Second)
-
 	producerCancel()
 	<-producerDone
 
 	totalProduced := int(producedCount.Load())
 	t.Logf("Produced %d records during test", totalProduced)
-
-	time.Sleep(3 * time.Second)
 
 	records := consumeRecords(t, broker, outputTopic, testGroupID(t, "verifier"), totalProduced, 60*time.Second)
 
@@ -410,7 +403,7 @@ func TestE2E_ConsumerGroup_MultipleTopics(t *testing.T) {
 		errCh <- app.RunWith(ctx, runner.NewSingleThreadedRunner())
 	}()
 
-	time.Sleep(3 * time.Second)
+	waitForGroupMembers(t, broker, groupID, 1, eventualWait)
 
 	produceRecords(t, broker, inputTopic1, map[string]string{"k1": "topic1-val"})
 	produceRecords(t, broker, inputTopic2, map[string]string{"k2": "topic2-val"})
