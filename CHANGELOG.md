@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.3.0](https://github.com/hugolhafner/go-streams/compare/v0.2.0...v0.3.0) (2026-02-14)
+
+
+### Features
+
+* cleanup ([#30](https://github.com/hugolhafner/go-streams/issues/30)) ([b850f07](https://github.com/hugolhafner/go-streams/commit/b850f07db961130504a606a0ee2fa2832de10ca1))
+* **errorhandler:** add phased handling support ([#28](https://github.com/hugolhafner/go-streams/issues/28)) ([e38bcba](https://github.com/hugolhafner/go-streams/commit/e38bcbaea30109f75765f765c6991e1435dcc7fb))
+
 ## [0.2.0](https://github.com/hugolhafner/go-streams/compare/v0.1.0...v0.2.0) (2026-02-12)
 
 
