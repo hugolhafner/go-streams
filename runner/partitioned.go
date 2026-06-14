@@ -278,6 +278,12 @@ func (r *PartitionedRunner) getWorker(tp kafka.TopicPartition) (*partitionWorker
 func (r *PartitionedRunner) OnAssigned(ctx context.Context, partitions []kafka.TopicPartition) {
 	r.logger.Info("Partitions assigned", "partitions", partitions)
 
+	r.telemetry.RebalanceCount.Add(
+		ctx, 1, metric.WithAttributes(
+			streamsotel.AttrRebalanceType.String(streamsotel.RebalanceTypeAssigned),
+		),
+	)
+
 	if err := r.taskManager.CreateTasks(partitions); err != nil {
 		r.logger.Error("Failed to create tasks for assigned partitions", "error", err)
 		emitError(r.errCh, r.logger, fmt.Errorf("failed to create tasks: %w", err))
@@ -287,11 +293,6 @@ func (r *PartitionedRunner) OnAssigned(ctx context.Context, partitions []kafka.T
 	r.telemetry.TasksActive.Add(
 		ctx, int64(len(partitions)), metric.WithAttributes(
 			streamsotel.AttrRunnerType.String(streamsotel.RunnerTypePartitioned),
-		),
-	)
-	r.telemetry.RebalanceCount.Add(
-		ctx, 1, metric.WithAttributes(
-			streamsotel.AttrRebalanceType.String(streamsotel.RebalanceTypeAssigned),
 		),
 	)
 

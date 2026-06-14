@@ -140,6 +140,11 @@ Spans include standard [OTel messaging semantic conventions](https://opentelemet
 | `messaging.batch.message_count`      | `10`                         | receive                   |
 | `stream.node.name`                   | `FILTER-000001`              | execute                   |
 | `stream.node.type`                   | `processor`, `sink`          | execute                   |
+| `stream.process.retry_count`         | `0`, `1`, `2`                | process                   |
+
+`stream.process.retry_count` records the raw processing attempt count (0-based) reached for the
+record. It is a span attribute only - it is **not** an attribute on the `stream.process.duration`
+metric.
 
 Error events are recorded on the `process` span as `exception` events with `exception.type` and `exception.message` attributes.
 
@@ -166,6 +171,7 @@ All metrics are registered under the `github.com/hugolhafner/go-streams` instrum
 | `stream.node.latency`            | Histogram     | s           | Processing time per node                           |
 | `stream.edge.records`            | Counter       | {message}   | Records flowing between nodes                      |
 | `stream.partitioned.queue.depth` | Gauge         | {message}   | Total records queued across partition workers      |
+| `stream.partitioned.paused.depth`| Gauge         | {message}   | Total records queued in paused partitions          |
 
 ### Metric Attributes
 
@@ -175,7 +181,6 @@ All metrics are registered under the `github.com/hugolhafner/go-streams` instrum
 | `messaging.destination.partition.id` | consumer.messages, process.duration, consumer.lag                                                               | Partition ID                                   |
 | `stream.poll.status`                 | poll.duration                                                                                                   | `success`, `error`                             |
 | `stream.process.status`              | process.duration                                                                                                | `success`, `dropped`, `dlq`, `failed`, `error` |
-| `stream.process.retry_count`         | process.duration                                                                                                | Bucketed retry count (0-3)                     |
 | `stream.produce.status`              | produce.duration                                                                                                | `success`, `error`                             |
 | `stream.error.action`                | errors                                                                                                          | `continue`, `retry`, `fail`, `send_to_dlq`     |
 | `stream.error.node`                  | errors                                                                                                          | Node name where the error occurred             |
@@ -235,16 +240,19 @@ go-streams provides per-node and per-edge metrics that enable visualizing the st
 Use `Topology.Describe()` to get a static description of the topology graph:
 
 ```go
-desc := topology.Describe()
+desc := t.Describe()
 for _, node := range desc.Nodes {
-    fmt.Printf("Node: %s (type=%s, subtitle=%s)\n", node.ID, node.Type, node.Subtitle)
+    fmt.Printf("Node: %s (type=%s, topic=%s)\n", node.ID, node.Type, node.Topic)
 }
 for _, edge := range desc.Edges {
     fmt.Printf("Edge: %s -> %s\n", edge.Source, edge.Target)
 }
 ```
 
-The `TopologyDescription` contains `[]NodeInfo` and `[]EdgeInfo` with fields that map directly to Grafana's required node/edge data format (id, title, subtitle, type, source, target).
+`Describe()` returns a `topology.Description` holding `[]NodeInfo` and `[]EdgeInfo`. `NodeInfo` has
+`ID`, `Type`, `Name`, and `Topic` (topic is set for source/sink nodes, empty otherwise); `EdgeInfo`
+has `ID`, `Source`, and `Target`. These map onto Grafana's node/edge data format: node `id` = `ID`,
+`title` = `Name`, `subtitle` = `Type`; edge `source` = `Source`, `target` = `Target`.
 
 ### Grafana Node Graph Setup
 
@@ -264,7 +272,9 @@ sum by (stream_edge_source, stream_edge_target) (rate(stream_edge_records_total[
 
 Configure field mappings: `source` = `stream_edge_source`, `target` = `stream_edge_target`, `mainstat` = `Value` (message flow rate).
 
-You can also use `stream.node.latency` for the node `secondarystat` to show average processing time, and `stream.errors` with `stream.error.node` for error overlays.
+You can also use `stream.node.latency` for the node `secondarystat` to show average processing time, and `stream.errors` with `stream.error.node` for error overlays. `stream.node.latency` is exclusive per-node self-time: a processor's latency excludes the downstream nodes it forwards to, so the values sum rather than nest.
+
+> **Note:** `stream.node.records`, `stream.edge.records`, and `stream.node.latency` are recorded **per processing attempt**. When a record is retried, the full topology is re-traversed, so these counters increment again on each attempt - whereas `messaging.consumer.messages` increments once per consumed record. During a retry storm, service-graph throughput will exceed the consumed-message rate by the retry factor.
 
 ## Alerting Examples
 

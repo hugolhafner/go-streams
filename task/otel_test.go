@@ -5,6 +5,7 @@ package task_test
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/hugolhafner/go-streams/kafka"
 	mockkafka "github.com/hugolhafner/go-streams/kafka/mock"
@@ -16,6 +17,7 @@ import (
 	"github.com/hugolhafner/go-streams/task"
 	"github.com/hugolhafner/go-streams/topology"
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/propagation"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
@@ -180,6 +182,89 @@ func TestTopologyTask_EdgeMetrics_FanOut(t *testing.T) {
 	require.True(t, ok, "expected stream.node.records metric")
 	sum := nodeRecords.Data.(metricdata.Sum[int64])
 	require.GreaterOrEqual(t, len(sum.DataPoints), 4, "expected at least 4 node data points (source + proc + 2 sinks)")
+}
+
+// nodeLatencySeconds returns the recorded stream.node.latency (in seconds) for a single node.
+// For a single observation the histogram Sum equals the recorded value.
+func nodeLatencySeconds(t *testing.T, metrics map[string]metricdata.Metrics, nodeName string) float64 {
+	t.Helper()
+	m, ok := metrics["stream.node.latency"]
+	require.True(t, ok, "expected stream.node.latency metric")
+	hist, ok := m.Data.(metricdata.Histogram[float64])
+	require.True(t, ok, "stream.node.latency should be a float64 histogram")
+	for _, dp := range hist.DataPoints {
+		if v, found := dp.Attributes.Value(attribute.Key("stream.node.name")); found && v.AsString() == nodeName {
+			return dp.Sum
+		}
+	}
+	t.Fatalf("no stream.node.latency data point for node %q", nodeName)
+	return 0
+}
+
+// TestTopologyTask_NodeLatency_ExcludesDownstream verifies that a processor's node latency is its
+// exclusive self-time: the recursive downstream subtree it forwards to must be subtracted out.
+func TestTopologyTask_NodeLatency_ExcludesDownstream(t *testing.T) {
+	t.Parallel()
+
+	const downstreamDelay = 50 * time.Millisecond
+
+	topo := topology.New()
+	topo.AddSource(
+		"source", "input",
+		serde.ToUntypedDeserialser(serde.String()),
+		serde.ToUntypedDeserialser(serde.String()),
+	)
+
+	// "up" forwards immediately; "down" sleeps before forwarding to the sink.
+	var up processor.Supplier[string, string, string, string] = func() processor.Processor[string, string, string, string] {
+		return builtins.NewMapProcessor(func(_ context.Context, k, v string) (string, string, error) {
+			return k, v, nil
+		})
+	}
+	var down processor.Supplier[string, string, string, string] = func() processor.Processor[string, string, string, string] {
+		return builtins.NewMapProcessor(func(_ context.Context, k, v string) (string, string, error) {
+			time.Sleep(downstreamDelay)
+			return k, v, nil
+		})
+	}
+	topo.AddProcessor("up", up.ToUntyped(), "source")
+	topo.AddProcessor("down", down.ToUntyped(), "up")
+	topo.AddSink(
+		"sink", "output",
+		serde.ToUntypedSerialiser(serde.String()),
+		serde.ToUntypedSerialiser(serde.String()),
+		"down",
+	)
+
+	reader, tel := setupOtelTest(t)
+
+	factory, err := task.NewTopologyTaskFactory(topo, logger.NewNoopLogger(), task.WithTelemetry(tel))
+	require.NoError(t, err)
+
+	producer := mockkafka.NewClient()
+	tp := kafka.TopicPartition{Topic: "input", Partition: 0}
+
+	tsk, err := factory.CreateTask(tp, producer)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = tsk.Close() })
+
+	rec := mockkafka.ConsumerRecord("input", 0, 0, "key", "value")
+	err = tsk.Process(context.Background(), rec)
+	require.NoError(t, err)
+
+	metrics := collectMetrics(t, reader)
+
+	upLatency := nodeLatencySeconds(t, metrics, "up")
+	downLatency := nodeLatencySeconds(t, metrics, "down")
+
+	// "down" actually sleeps, so its self-time reflects that delay.
+	require.GreaterOrEqual(t, downLatency, 0.8*downstreamDelay.Seconds(),
+		"down node self-time should include its own delay")
+
+	// "up" forwards to "down": its self-time must EXCLUDE the downstream subtree.
+	// Before the fix it would have included down's delay (cumulative subtree wall-clock).
+	require.Less(t, upLatency, 0.5*downstreamDelay.Seconds(),
+		"up node self-time should exclude downstream processing")
 }
 
 func TestTopologyTask_SourceNodeMetrics(t *testing.T) {

@@ -80,10 +80,14 @@ func processRecordWithRetry(
 	ctx = tel.Propagator.Extract(ctx, carrier)
 
 	if !rec.Timestamp.IsZero() {
-		tel.ConsumerLag.Record(ctx, time.Since(rec.Timestamp).Seconds(), metric.WithAttributes(
-			semconv.MessagingDestinationName(rec.Topic),
-			semconv.MessagingDestinationPartitionID(strconv.FormatInt(int64(rec.Partition), 10)),
-		))
+		// clamps time to prevent producer clock skew from producing negatives
+		lag := max(time.Since(rec.Timestamp).Seconds(), 0)
+		tel.ConsumerLag.Record(
+			ctx, lag, metric.WithAttributes(
+				semconv.MessagingDestinationName(rec.Topic),
+				semconv.MessagingDestinationPartitionID(strconv.FormatInt(int64(rec.Partition), 10)),
+			),
+		)
 	}
 
 	processStart := time.Now()
@@ -172,10 +176,12 @@ func processRecordWithRetry(
 
 		case errorhandler.ActionTypeRetry:
 			l.Debug("Retrying record", "attempt", ec.Attempt, "offset", rec.Offset)
-			tel.ProcessRetries.Add(ctx, 1, metric.WithAttributes(
-				semconv.MessagingDestinationName(rec.Topic),
-				streamsotel.AttrErrorPhase.String(ec.Phase.String()),
-			))
+			tel.ProcessRetries.Add(
+				ctx, 1, metric.WithAttributes(
+					semconv.MessagingDestinationName(rec.Topic),
+					streamsotel.AttrErrorPhase.String(ec.Phase.String()),
+				),
+			)
 			ec = ec.IncrementAttempt()
 
 			if ec.Attempt%10 == 0 {

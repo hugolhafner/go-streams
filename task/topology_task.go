@@ -13,7 +13,9 @@ import (
 	"github.com/hugolhafner/go-streams/processor"
 	"github.com/hugolhafner/go-streams/record"
 	"github.com/hugolhafner/go-streams/topology"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
+	semconv "go.opentelemetry.io/otel/semconv/v1.39.0"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -50,6 +52,8 @@ func (t *TopologyTask) processSafe(ctx context.Context, rec kafka.ConsumerRecord
 		}
 	}()
 
+	sourceStart := time.Now()
+
 	key, err := t.source.KeySerde().Deserialise(rec.Topic, rec.Key)
 	if err != nil {
 		return NewSerdeError(fmt.Errorf("deserialize key: %w", err))
@@ -65,7 +69,6 @@ func (t *TopologyTask) processSafe(ctx context.Context, rec kafka.ConsumerRecord
 		rec.Offset,
 	)
 
-	sourceStart := time.Now()
 	untypedRec := record.NewUntyped(
 		key, value, record.Metadata{
 			Topic:     rec.Topic,
@@ -76,21 +79,14 @@ func (t *TopologyTask) processSafe(ctx context.Context, rec kafka.ConsumerRecord
 		},
 	)
 
-	sourceName := t.source.Name()
-	sourceAttrs := metric.WithAttributes(
-		streamsotel.AttrNodeName.String(sourceName),
-		streamsotel.AttrNodeType.String(streamsotel.NodeTypeSource),
-	)
-	t.telemetry.NodeRecords.Add(ctx, 1, sourceAttrs)
-	t.telemetry.NodeLatency.Record(ctx, time.Since(sourceStart).Seconds(), sourceAttrs)
+	sc := t.contexts[t.source.Name()]
+	t.telemetry.NodeRecords.Add(ctx, 1, sc.selfAttrs)
+	// Recorded before forwarding to children, so source latency stays exclusive of downstream nodes.
+	t.telemetry.NodeLatency.Record(ctx, time.Since(sourceStart).Seconds(), sc.selfAttrs)
 
-	children := t.topology.Children(sourceName)
-	for _, childName := range children {
+	for i, childName := range sc.children {
 		t.logger.Debug("Forwarding record to child node", "node", childName)
-		t.telemetry.EdgeRecords.Add(ctx, 1, metric.WithAttributes(
-			streamsotel.AttrEdgeSource.String(sourceName),
-			streamsotel.AttrEdgeTarget.String(childName),
-		))
+		t.telemetry.EdgeRecords.Add(ctx, 1, sc.edgeAttrs[i])
 		if err := t.processAt(ctx, childName, untypedRec); err != nil {
 			if _, ok := AsProductionError(err); ok {
 				return err
@@ -129,30 +125,28 @@ func (t *TopologyTask) processAt(ctx context.Context, nodeName string, rec *reco
 		return fmt.Errorf("unknown node: %s", nodeName)
 	}
 
-	nodeAttrs := metric.WithAttributes(
-		streamsotel.AttrNodeName.String(nodeName),
-		streamsotel.AttrNodeType.String(streamsotel.NodeTypeProcessor),
-	)
+	nc := t.contexts[nodeName]
 
 	ctx, span := t.telemetry.Tracer.Start(
-		ctx, nodeName+" execute",
+		ctx, nc.spanName,
 		trace.WithSpanKind(trace.SpanKindInternal),
-		trace.WithAttributes(
-			streamsotel.AttrNodeName.String(nodeName),
-			streamsotel.AttrNodeType.String(streamsotel.NodeTypeProcessor),
-		),
+		nc.spanAttrs,
 	)
 	defer span.End()
 
 	t.logger.Debug("Processing record at processor node", "node", nodeName)
+	// Reset the child accumulator so self-time excludes the recursive downstream subtree that
+	// proc.Process triggers via ctx.Forward/ForwardTo
+	nc.childTime = 0
 	start := time.Now()
 	if err := proc.Process(ctx, rec); err != nil {
 		span.RecordError(err)
 		return err
 	}
 
-	t.telemetry.NodeRecords.Add(ctx, 1, nodeAttrs)
-	t.telemetry.NodeLatency.Record(ctx, time.Since(start).Seconds(), nodeAttrs)
+	self := max(time.Since(start)-nc.childTime, 0)
+	t.telemetry.NodeRecords.Add(ctx, 1, nc.selfAttrs)
+	t.telemetry.NodeLatency.Record(ctx, self.Seconds(), nc.selfAttrs)
 
 	return nil
 }
@@ -190,25 +184,79 @@ func (t *TopologyTask) init() (*TopologyTask, error) {
 		}
 	}
 
-	for name := range t.topology.Nodes() {
+	for name, node := range t.topology.Nodes() {
 		children := t.topology.Children(name)
 		namedEdges := t.topology.NamedEdges(name)
+		nodeType := node.Type().String()
+
+		edgeAttrs := make([]metric.MeasurementOption, len(children))
+		for i, child := range children {
+			edgeAttrs[i] = metric.WithAttributeSet(
+				attribute.NewSet(
+					streamsotel.AttrEdgeSource.String(name),
+					streamsotel.AttrEdgeTarget.String(child),
+				),
+			)
+		}
+
+		namedEdgeAttrs := make(map[string]metric.MeasurementOption, len(namedEdges))
+		for childName, actualName := range namedEdges {
+			namedEdgeAttrs[childName] = metric.WithAttributeSet(
+				attribute.NewSet(
+					streamsotel.AttrEdgeSource.String(name),
+					streamsotel.AttrEdgeTarget.String(actualName),
+				),
+			)
+		}
+
 		t.contexts[name] = &nodeContext{
 			task:       t,
 			nodeName:   name,
 			children:   children,
 			namedEdges: namedEdges,
 			telemetry:  t.telemetry,
+			selfAttrs: metric.WithAttributeSet(
+				attribute.NewSet(
+					streamsotel.AttrNodeName.String(name),
+					streamsotel.AttrNodeType.String(nodeType),
+				),
+			),
+			edgeAttrs:      edgeAttrs,
+			namedEdgeAttrs: namedEdgeAttrs,
+			spanName:       name + " execute",
+			spanAttrs: trace.WithAttributes(
+				streamsotel.AttrNodeName.String(name),
+				streamsotel.AttrNodeType.String(nodeType),
+			),
 		}
 	}
 
 	for name, node := range t.topology.Nodes() {
 		if sn, ok := node.(topology.SinkNode); ok {
+			topic := sn.Topic()
 			t.sinks[name] = &sinkHandler{
 				name:      name,
 				node:      sn,
 				producer:  t.producer,
 				telemetry: t.telemetry,
+				sinkAttrs: metric.WithAttributeSet(
+					attribute.NewSet(
+						streamsotel.AttrNodeName.String(name),
+						streamsotel.AttrNodeType.String(streamsotel.NodeTypeSink),
+					),
+				),
+				producedAttrs: metric.WithAttributeSet(
+					attribute.NewSet(
+						semconv.MessagingDestinationName(topic),
+					),
+				),
+				produceSuccessAttrs: metric.WithAttributeSet(
+					attribute.NewSet(
+						semconv.MessagingDestinationName(topic),
+						streamsotel.AttrProduceStatus.String(streamsotel.StatusSuccess),
+					),
+				),
+				publishSpanName: topic + " publish",
 			}
 		}
 	}

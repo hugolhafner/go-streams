@@ -360,6 +360,119 @@ func TestPartitionedRunner_OTel_QueueDepth(t *testing.T) {
 	assertMetricExists(t, metrics, "stream.partitioned.queue.depth")
 }
 
+// TestSingleThreaded_OTel_ConsumerLag_ClampsNegative verifies a future record timestamp (producer
+// clock skew) does not produce a negative consumer-lag observation.
+func TestSingleThreaded_OTel_ConsumerLag_ClampsNegative(t *testing.T) {
+	_, metricReader, tel := setupOtelTest(t)
+
+	topo := createTestTopology()
+
+	client := mockkafka.NewClient(mockkafka.WithGroupID("test-group"))
+	rec := mockkafka.Record("k1", "v1").
+		WithTopic("input").
+		WithPartition(0).
+		WithOffset(0).
+		WithLeaderEpoch(1).
+		WithTimestamp(time.Now().Add(5 * time.Second)). // future timestamp -> negative raw lag
+		Build()
+	client.AddRecords("input", 0, rec)
+
+	factory, err := task.NewTopologyTaskFactory(topo, logger.NewNoopLogger(), task.WithTelemetry(tel))
+	require.NoError(t, err)
+
+	runnerFactory := NewSingleThreadedRunner()
+	rn, err := runnerFactory(topo, factory, client, client, tel)
+	require.NoError(t, err)
+	r := rn.(*SingleThreaded)
+
+	err = client.Subscribe(topo.SourceTopics(), r)
+	require.NoError(t, err)
+
+	err = r.doPoll(context.Background())
+	require.NoError(t, err)
+
+	var rm metricdata.ResourceMetrics
+	err = metricReader.Collect(context.Background(), &rm)
+	require.NoError(t, err)
+
+	m, ok := findMetric(rm, "stream.consumer.lag")
+	require.True(t, ok, "expected stream.consumer.lag metric")
+	hist, ok := m.Data.(metricdata.Histogram[float64])
+	require.True(t, ok, "stream.consumer.lag should be a float64 histogram")
+	require.NotEmpty(t, hist.DataPoints)
+	for _, dp := range hist.DataPoints {
+		if minV, hasMin := dp.Min.Value(); hasMin {
+			require.GreaterOrEqual(t, minV, 0.0, "consumer lag must be clamped to >= 0")
+		}
+		require.GreaterOrEqual(t, dp.Sum, 0.0, "consumer lag sum must be >= 0")
+	}
+}
+
+// TestSingleThreaded_OTel_RebalanceCounted_WhenCreateTasksFails verifies the assigned rebalance is
+// counted even when task creation fails, while tasks.active is not incremented.
+func TestSingleThreaded_OTel_RebalanceCounted_WhenCreateTasksFails(t *testing.T) {
+	_, metricReader, tel := setupOtelTest(t)
+
+	topo := createTestTopology() // only source topic is "input"
+
+	client := mockkafka.NewClient(mockkafka.WithGroupID("test-group"))
+
+	factory, err := task.NewTopologyTaskFactory(topo, logger.NewNoopLogger(), task.WithTelemetry(tel))
+	require.NoError(t, err)
+
+	runnerFactory := NewSingleThreadedRunner()
+	rn, err := runnerFactory(topo, factory, client, client, tel)
+	require.NoError(t, err)
+	r := rn.(*SingleThreaded)
+
+	// "nonexistent" has no source node, so CreateTasks fails and OnAssigned returns early.
+	r.OnAssigned(context.Background(), []kafka.TopicPartition{{Topic: "nonexistent", Partition: 0}})
+
+	var rm metricdata.ResourceMetrics
+	err = metricReader.Collect(context.Background(), &rm)
+	require.NoError(t, err)
+
+	require.Equal(t, int64(1),
+		sumInt64(t, rm, "stream.rebalance.count", "stream.rebalance.type", "assigned"),
+		"assigned rebalance should be counted even when CreateTasks fails")
+	require.Equal(t, int64(0), sumInt64(t, rm, "stream.tasks.active", "", ""),
+		"tasks.active should not increment when CreateTasks fails")
+}
+
+func findMetric(rm metricdata.ResourceMetrics, name string) (metricdata.Metrics, bool) {
+	for _, sm := range rm.ScopeMetrics {
+		for _, m := range sm.Metrics {
+			if m.Name == name {
+				return m, true
+			}
+		}
+	}
+	return metricdata.Metrics{}, false
+}
+
+// sumInt64 totals the Int64 Sum data points for a metric, optionally filtered to data points whose
+// attrKey attribute equals attrVal. Returns 0 if the metric was never recorded.
+func sumInt64(t *testing.T, rm metricdata.ResourceMetrics, name, attrKey, attrVal string) int64 {
+	t.Helper()
+	m, ok := findMetric(rm, name)
+	if !ok {
+		return 0
+	}
+	sum, ok := m.Data.(metricdata.Sum[int64])
+	require.True(t, ok, "metric %q should be Sum[int64]", name)
+	var total int64
+	for _, dp := range sum.DataPoints {
+		if attrKey == "" {
+			total += dp.Value
+			continue
+		}
+		if v, found := dp.Attributes.Value(attribute.Key(attrKey)); found && v.AsString() == attrVal {
+			total += dp.Value
+		}
+	}
+	return total
+}
+
 func assertAttribute(t *testing.T, attrs []attribute.KeyValue, key, expected string) {
 	t.Helper()
 	for _, a := range attrs {

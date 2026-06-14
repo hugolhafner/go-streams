@@ -2,6 +2,7 @@ package topology
 
 import (
 	"fmt"
+	"sort"
 )
 
 // NodeInfo describes a node in the topology graph
@@ -34,6 +35,7 @@ func (t *Topology) Describe() Description {
 	for name := range t.nodes {
 		names = append(names, name)
 	}
+	sort.Strings(names)
 
 	for _, name := range names {
 		node := t.nodes[name]
