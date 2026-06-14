@@ -54,7 +54,7 @@ func KgoComplete() {
 	kstream.ToWithSerde(summary, "example-kgo-complete-output", serde.String(), serde.JSON[OrderSummary]())
 
 	t := builder.Build()
-	t.PrintTree()
+	t.Describe().Print()
 
 	client, err := kafka.NewKgoClient(
 		kafka.WithLogger(klogger),

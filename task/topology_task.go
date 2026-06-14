@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/hugolhafner/go-streams/kafka"
 	"github.com/hugolhafner/go-streams/logger"
@@ -12,6 +13,7 @@ import (
 	"github.com/hugolhafner/go-streams/processor"
 	"github.com/hugolhafner/go-streams/record"
 	"github.com/hugolhafner/go-streams/topology"
+	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -63,6 +65,7 @@ func (t *TopologyTask) processSafe(ctx context.Context, rec kafka.ConsumerRecord
 		rec.Offset,
 	)
 
+	sourceStart := time.Now()
 	untypedRec := record.NewUntyped(
 		key, value, record.Metadata{
 			Topic:     rec.Topic,
@@ -73,9 +76,21 @@ func (t *TopologyTask) processSafe(ctx context.Context, rec kafka.ConsumerRecord
 		},
 	)
 
-	children := t.topology.Children(t.source.Name())
+	sourceName := t.source.Name()
+	sourceAttrs := metric.WithAttributes(
+		streamsotel.AttrNodeName.String(sourceName),
+		streamsotel.AttrNodeType.String(streamsotel.NodeTypeSource),
+	)
+	t.telemetry.NodeRecords.Add(ctx, 1, sourceAttrs)
+	t.telemetry.NodeLatency.Record(ctx, time.Since(sourceStart).Seconds(), sourceAttrs)
+
+	children := t.topology.Children(sourceName)
 	for _, childName := range children {
 		t.logger.Debug("Forwarding record to child node", "node", childName)
+		t.telemetry.EdgeRecords.Add(ctx, 1, metric.WithAttributes(
+			streamsotel.AttrEdgeSource.String(sourceName),
+			streamsotel.AttrEdgeTarget.String(childName),
+		))
 		if err := t.processAt(ctx, childName, untypedRec); err != nil {
 			if _, ok := AsProductionError(err); ok {
 				return err
@@ -114,6 +129,11 @@ func (t *TopologyTask) processAt(ctx context.Context, nodeName string, rec *reco
 		return fmt.Errorf("unknown node: %s", nodeName)
 	}
 
+	nodeAttrs := metric.WithAttributes(
+		streamsotel.AttrNodeName.String(nodeName),
+		streamsotel.AttrNodeType.String(streamsotel.NodeTypeProcessor),
+	)
+
 	ctx, span := t.telemetry.Tracer.Start(
 		ctx, nodeName+" execute",
 		trace.WithSpanKind(trace.SpanKindInternal),
@@ -125,10 +145,14 @@ func (t *TopologyTask) processAt(ctx context.Context, nodeName string, rec *reco
 	defer span.End()
 
 	t.logger.Debug("Processing record at processor node", "node", nodeName)
+	start := time.Now()
 	if err := proc.Process(ctx, rec); err != nil {
 		span.RecordError(err)
 		return err
 	}
+
+	t.telemetry.NodeRecords.Add(ctx, 1, nodeAttrs)
+	t.telemetry.NodeLatency.Record(ctx, time.Since(start).Seconds(), nodeAttrs)
 
 	return nil
 }
@@ -174,6 +198,7 @@ func (t *TopologyTask) init() (*TopologyTask, error) {
 			nodeName:   name,
 			children:   children,
 			namedEdges: namedEdges,
+			telemetry:  t.telemetry,
 		}
 	}
 

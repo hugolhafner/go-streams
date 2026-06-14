@@ -127,8 +127,8 @@ func TestSingleThreaded_OTel_Metrics(t *testing.T) {
 	client := mockkafka.NewClient(mockkafka.WithGroupID("test-group"))
 	client.AddRecords(
 		"input", 0,
-		mockkafka.SimpleRecord("k1", "v1"),
-		mockkafka.SimpleRecord("k2", "v2"),
+		mockkafka.Record("k1", "v1").WithTimestamp(time.Now().Add(-100*time.Millisecond)).Build(),
+		mockkafka.Record("k2", "v2").WithTimestamp(time.Now().Add(-200*time.Millisecond)).Build(),
 	)
 
 	factory, err := task.NewTopologyTaskFactory(topo, logger.NewNoopLogger(), task.WithTelemetry(tel))
@@ -166,6 +166,14 @@ func TestSingleThreaded_OTel_Metrics(t *testing.T) {
 
 	// Verify produce duration histogram
 	assertMetricExists(t, metrics, "stream.produce.duration")
+
+	// Verify new metrics
+	assertMetricExists(t, metrics, "stream.poll.records")
+	assertMetricExists(t, metrics, "stream.consumer.lag")
+
+	// Verify removed metrics are not present
+	assertMetricNotExists(t, metrics, "stream.error_handler.actions")
+	assertMetricNotExists(t, metrics, "stream.node.errors")
 }
 
 func TestSingleThreaded_OTel_TasksActiveMetric(t *testing.T) {
@@ -193,6 +201,38 @@ func TestSingleThreaded_OTel_TasksActiveMetric(t *testing.T) {
 
 	metrics := collectMetrics(rm)
 	assertMetricExists(t, metrics, "stream.tasks.active")
+}
+
+func TestSingleThreaded_OTel_RebalanceCount(t *testing.T) {
+	_, metricReader, tel := setupOtelTest(t)
+
+	topo := createTestTopology()
+
+	client := mockkafka.NewClient(mockkafka.WithGroupID("test-group"))
+	client.AddRecords("input", 0, mockkafka.SimpleRecord("k1", "v1"))
+
+	factory, err := task.NewTopologyTaskFactory(topo, logger.NewNoopLogger(), task.WithTelemetry(tel))
+	require.NoError(t, err)
+
+	runnerFactory := NewSingleThreadedRunner()
+	rn, err := runnerFactory(topo, factory, client, client, tel)
+	require.NoError(t, err)
+	r := rn.(*SingleThreaded)
+
+	partitions := []kafka.TopicPartition{{Topic: "input", Partition: 0}}
+
+	// OnAssigned should record rebalance count
+	r.OnAssigned(context.Background(), partitions)
+
+	// OnRevoked should record rebalance count
+	r.OnRevoked(context.Background(), partitions)
+
+	var rm metricdata.ResourceMetrics
+	err = metricReader.Collect(context.Background(), &rm)
+	require.NoError(t, err)
+
+	metrics := collectMetrics(rm)
+	assertMetricExists(t, metrics, "stream.rebalance.count")
 }
 
 func TestSingleThreaded_OTel_ContextPropagation(t *testing.T) {
@@ -277,9 +317,11 @@ func TestPartitionedRunner_OTel_BasicSpans(t *testing.T) {
 	}()
 
 	// Wait for spans to be recorded then cancel
-	require.Eventually(t, func() bool {
-		return len(spanExporter.GetSpans()) > 0
-	}, 3*time.Second, 50*time.Millisecond, "spans should be recorded")
+	require.Eventually(
+		t, func() bool {
+			return len(spanExporter.GetSpans()) > 0
+		}, 3*time.Second, 50*time.Millisecond, "spans should be recorded",
+	)
 	cancel()
 	<-done
 
@@ -296,7 +338,27 @@ func TestPartitionedRunner_OTel_BasicSpans(t *testing.T) {
 	require.True(t, spanNames["output publish"], "Expected 'output publish' span")
 }
 
-// Helper functions
+func TestPartitionedRunner_OTel_QueueDepth(t *testing.T) {
+	_, metricReader, tel := setupOtelTest(t)
+
+	topo := createTestTopology()
+
+	client := mockkafka.NewClient(mockkafka.WithGroupID("test-group"))
+
+	factory, err := task.NewTopologyTaskFactory(topo, logger.NewNoopLogger(), task.WithTelemetry(tel))
+	require.NoError(t, err)
+
+	runnerFactory := NewPartitionedRunner(WithChannelBufferSize(10))
+	_, err = runnerFactory(topo, factory, client, client, tel)
+	require.NoError(t, err)
+
+	var rm metricdata.ResourceMetrics
+	err = metricReader.Collect(context.Background(), &rm)
+	require.NoError(t, err)
+
+	metrics := collectMetrics(rm)
+	assertMetricExists(t, metrics, "stream.partitioned.queue.depth")
+}
 
 func assertAttribute(t *testing.T, attrs []attribute.KeyValue, key, expected string) {
 	t.Helper()
@@ -325,4 +387,9 @@ func collectMetrics(rm metricdata.ResourceMetrics) map[string]bool {
 func assertMetricExists(t *testing.T, metrics map[string]bool, name string) {
 	t.Helper()
 	require.True(t, metrics[name], "Expected metric %q to be recorded", name)
+}
+
+func assertMetricNotExists(t *testing.T, metrics map[string]bool, name string) {
+	t.Helper()
+	require.False(t, metrics[name], "Expected metric %q to NOT be recorded", name)
 }

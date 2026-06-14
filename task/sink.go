@@ -24,6 +24,12 @@ type sinkHandler struct {
 
 func (s *sinkHandler) Process(ctx context.Context, rec *record.UntypedRecord) error {
 	topic := s.node.Topic()
+	tel := s.telemetry
+
+	sinkAttrs := metric.WithAttributes(
+		streamsotel.AttrNodeName.String(s.name),
+		streamsotel.AttrNodeType.String(streamsotel.NodeTypeSink),
+	)
 
 	key, err := s.node.KeySerde().Serialise(topic, rec.Key)
 	if err != nil {
@@ -34,8 +40,6 @@ func (s *sinkHandler) Process(ctx context.Context, rec *record.UntypedRecord) er
 	if err != nil {
 		return NewSerdeError(fmt.Errorf("serialize value for topic %s: %w", topic, err))
 	}
-
-	tel := s.telemetry
 
 	ctx, span := tel.Tracer.Start(
 		ctx, topic+" publish",
@@ -79,6 +83,9 @@ func (s *sinkHandler) Process(ctx context.Context, rec *record.UntypedRecord) er
 			semconv.MessagingDestinationName(topic),
 		),
 	)
+
+	tel.NodeRecords.Add(ctx, 1, sinkAttrs)
+	tel.NodeLatency.Record(ctx, time.Since(produceStart).Seconds(), sinkAttrs)
 
 	return nil
 }

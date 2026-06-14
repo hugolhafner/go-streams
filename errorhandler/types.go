@@ -16,15 +16,15 @@ const (
 func (a ActionType) String() string {
 	switch a {
 	case ActionTypeContinue:
-		return "Continue"
+		return "continue"
 	case ActionTypeRetry:
-		return "Retry"
+		return "retry"
 	case ActionTypeFail:
-		return "Fail"
+		return "fail"
 	case ActionTypeSendToDLQ:
-		return "SendToDLQ"
+		return "send_to_dlq"
 	default:
-		return "Unknown"
+		return "unknown"
 	}
 }
 

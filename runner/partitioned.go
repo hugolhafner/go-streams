@@ -162,6 +162,7 @@ func (r *PartitionedRunner) doPoll(ctx context.Context) error {
 			streamsotel.AttrPollStatus.String(streamsotel.StatusSuccess),
 		),
 	)
+	tel.PollRecords.Record(ctx, int64(len(records)))
 
 	receiveSpan.SetAttributes(semconv.MessagingBatchMessageCount(len(records)))
 	receiveSpan.End()
@@ -211,7 +212,7 @@ func (r *PartitionedRunner) doPoll(ctx context.Context) error {
 		r.pendingMu.Unlock()
 
 		r.consumer.PausePartitions(tp)
-		r.logger.Debug(
+		r.logger.Warn(
 			"Paused partition due to backpressure",
 			"topic", tp.Topic,
 			"partition", tp.Partition,
@@ -258,7 +259,7 @@ func (r *PartitionedRunner) dispatchPending(ctx context.Context) {
 	if len(toResume) > 0 {
 		r.consumer.ResumePartitions(toResume...)
 		for _, tp := range toResume {
-			r.logger.Debug(
+			r.logger.Info(
 				"Resumed partition after backpressure drain",
 				"topic", tp.Topic,
 				"partition", tp.Partition,
@@ -286,6 +287,11 @@ func (r *PartitionedRunner) OnAssigned(ctx context.Context, partitions []kafka.T
 	r.telemetry.TasksActive.Add(
 		ctx, int64(len(partitions)), metric.WithAttributes(
 			streamsotel.AttrRunnerType.String(streamsotel.RunnerTypePartitioned),
+		),
+	)
+	r.telemetry.RebalanceCount.Add(
+		ctx, 1, metric.WithAttributes(
+			streamsotel.AttrRebalanceType.String(streamsotel.RebalanceTypeAssigned),
 		),
 	)
 
@@ -385,6 +391,11 @@ func (r *PartitionedRunner) OnRevoked(ctx context.Context, partitions []kafka.To
 			streamsotel.AttrRunnerType.String(streamsotel.RunnerTypePartitioned),
 		),
 	)
+	r.telemetry.RebalanceCount.Add(
+		ctx, 1, metric.WithAttributes(
+			streamsotel.AttrRebalanceType.String(streamsotel.RebalanceTypeRevoked),
+		),
+	)
 
 	r.mu.Lock()
 	for _, tp := range partitions {
@@ -473,16 +484,16 @@ func (r *PartitionedRunner) WorkerQueueDepths() map[kafka.TopicPartition]int {
 	return depths
 }
 
-// PendingCounts returns the number of pending records per partition
-func (r *PartitionedRunner) PendingCounts() map[kafka.TopicPartition]int {
+// PendingDepths returns the number of pending records per partition
+func (r *PartitionedRunner) PendingDepths() map[kafka.TopicPartition]int {
 	r.pendingMu.Lock()
 	defer r.pendingMu.Unlock()
 
-	counts := make(map[kafka.TopicPartition]int, len(r.pending))
+	depths := make(map[kafka.TopicPartition]int, len(r.pending))
 	for tp, records := range r.pending {
-		counts[tp] = len(records)
+		depths[tp] = len(records)
 	}
-	return counts
+	return depths
 }
 
 // PausedPartitions returns the set of partitions currently paused due to backpressure
