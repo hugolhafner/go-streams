@@ -76,10 +76,10 @@ kstream.ToWithSerde(summary, "order-summaries", serde.String(), serde.JSON[Order
 t := builder.Build()
 ```
 
-Use `PrintTree()` to inspect the topology structure during development:
+Use `Describe().Print()` to inspect the topology structure during development:
 
 ```go
-t.PrintTree()
+t.Describe().Print()
 // Output:
 // - SOURCE-000001 (Source, topic=orders)
 //   - FILTER-000002 (Processor)

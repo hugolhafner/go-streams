@@ -41,7 +41,7 @@ func BasicMap() {
 
 	kstream.ToWithSerde(summary, "order-summaries", serde.String(), serde.JSON[OrderSummary]())
 	t := builder.Build()
-	t.PrintTree()
+	t.Describe().Print()
 
 	client, err := kafka.NewKgoClient()
 	if err != nil {

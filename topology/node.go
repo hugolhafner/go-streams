@@ -16,13 +16,13 @@ const (
 func (nt NodeType) String() string {
 	switch nt {
 	case NodeTypeSource:
-		return "Source"
+		return "source"
 	case NodeTypeProcessor:
-		return "Processor"
+		return "processor"
 	case NodeTypeSink:
-		return "Sink"
+		return "sink"
 	default:
-		return "Unknown"
+		return "unknown"
 	}
 }
 

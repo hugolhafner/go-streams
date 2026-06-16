@@ -5,6 +5,8 @@ import (
 )
 
 const (
+	AttrStreamID = attribute.Key("stream.id")
+
 	AttrNodeName      = attribute.Key("stream.node.name")
 	AttrNodeType      = attribute.Key("stream.node.type")
 	AttrProcessStatus = attribute.Key("stream.process.status")
@@ -14,6 +16,8 @@ const (
 	AttrErrorNode     = attribute.Key("stream.error.node")
 	AttrErrorPhase    = attribute.Key("stream.error.phase")
 	AttrRunnerType    = attribute.Key("stream.runner.type")
+	AttrEdgeSource    = attribute.Key("stream.edge.source")
+	AttrEdgeTarget    = attribute.Key("stream.edge.target")
 )
 
 // Process status values
@@ -27,6 +31,7 @@ const (
 
 // Node type values
 const (
+	NodeTypeSource    = "source"
 	NodeTypeProcessor = "processor"
 	NodeTypeSink      = "sink"
 )
@@ -35,4 +40,15 @@ const (
 const (
 	RunnerTypeSingleThreaded = "single_threaded"
 	RunnerTypePartitioned    = "partitioned"
+)
+
+// Rebalance attributes
+const (
+	AttrRebalanceType = attribute.Key("stream.rebalance.type")
+)
+
+// Rebalance type values
+const (
+	RebalanceTypeAssigned = "assigned"
+	RebalanceTypeRevoked  = "revoked"
 )

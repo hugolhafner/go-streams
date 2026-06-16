@@ -2,19 +2,27 @@ package kafka
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
+	"os"
 	"sync"
 	"time"
 
 	"github.com/hugolhafner/go-streams/logger"
 	"github.com/twmb/franz-go/pkg/kgo"
+	"github.com/twmb/franz-go/pkg/sasl"
 )
 
 var _ Client = (*KgoClient)(nil)
 
 type KgoClientConfig struct {
-	BootstrapServers   []string
+	BootstrapServers []string
+
+	TLS  *tls.Config
+	SASL sasl.Mechanism
+
 	GroupID            string
 	SessionTimeout     time.Duration
 	HeartbeatInterval  time.Duration
@@ -59,6 +67,46 @@ func WithLogger(l logger.Logger) KgoOption {
 	}
 }
 
+func WithSASL(s sasl.Mechanism) KgoOption {
+	return func(cfg *KgoClientConfig) {
+		cfg.SASL = s
+	}
+}
+
+func WithTLS(tp *tls.Config) KgoOption {
+	return func(cfg *KgoClientConfig) {
+		cfg.TLS = tp
+	}
+}
+
+func WithCaCertPath(path string) KgoOption {
+	return func(cfg *KgoClientConfig) {
+		caCert, err := os.ReadFile(path)
+		if err != nil {
+			panic(fmt.Sprintf("failed to read CA cert: %v", err))
+		}
+
+		WithCaCert(caCert)(cfg)
+	}
+}
+
+func WithCaCert(cert []byte) KgoOption {
+	return func(cfg *KgoClientConfig) {
+		caCertPool := x509.NewCertPool()
+		if ok := caCertPool.AppendCertsFromPEM(cert); !ok {
+			panic("failed to parse CA certificate")
+		}
+
+		if cfg.TLS == nil {
+			cfg.TLS = &tls.Config{
+				InsecureSkipVerify: false,
+			}
+		}
+
+		cfg.TLS.RootCAs = caCertPool
+	}
+}
+
 type KgoClient struct {
 	client *kgo.Client
 	config KgoClientConfig
@@ -90,6 +138,14 @@ func NewKgoClient(opts ...KgoOption) (*KgoClient, error) {
 		kgo.AutoCommitMarks(),
 		kgo.AutoCommitInterval(cfg.AutoCommitInterval),
 		// TODO: Metrics support
+	}
+
+	if cfg.TLS != nil {
+		kgoOpts = append(kgoOpts, kgo.DialTLSConfig(cfg.TLS))
+	}
+
+	if cfg.SASL != nil {
+		kgoOpts = append(kgoOpts, kgo.SASL(cfg.SASL))
 	}
 
 	client, err := kgo.NewClient(kgoOpts...)

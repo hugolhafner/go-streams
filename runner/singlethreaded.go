@@ -118,6 +118,7 @@ func (r *SingleThreaded) doPoll(ctx context.Context) error {
 			streamsotel.AttrPollStatus.String(streamsotel.StatusSuccess),
 		),
 	)
+	tel.PollRecords.Record(ctx, int64(len(records)))
 
 	receiveSpan.SetAttributes(semconv.MessagingBatchMessageCount(len(records)))
 	receiveSpan.End()
@@ -178,6 +179,13 @@ func (r *SingleThreaded) emitErr(err error) {
 
 func (r *SingleThreaded) OnAssigned(ctx context.Context, partitions []kafka.TopicPartition) {
 	r.logger.Debug("Assigned partitions", "partitions", partitions)
+
+	r.telemetry.RebalanceCount.Add(
+		ctx, 1, metric.WithAttributes(
+			streamsotel.AttrRebalanceType.String(streamsotel.RebalanceTypeAssigned),
+		),
+	)
+
 	r.logger.Debug("Creating tasks for partitions")
 	if err := r.taskManager.CreateTasks(partitions); err != nil {
 		r.logger.Error("Failed to create tasks on assigned partitions", "error", err)
@@ -218,6 +226,11 @@ func (r *SingleThreaded) OnRevoked(ctx context.Context, partitions []kafka.Topic
 	r.telemetry.TasksActive.Add(
 		ctx, -int64(len(partitions)), metric.WithAttributes(
 			streamsotel.AttrRunnerType.String(streamsotel.RunnerTypeSingleThreaded),
+		),
+	)
+	r.telemetry.RebalanceCount.Add(
+		ctx, 1, metric.WithAttributes(
+			streamsotel.AttrRebalanceType.String(streamsotel.RebalanceTypeRevoked),
 		),
 	)
 }

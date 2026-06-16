@@ -14,7 +14,7 @@ builder := kstream.NewStreamsBuilder()
 t := builder.Build() // returns *topology.Topology
 ```
 
-Call `Build()` once and reuse the result for both `PrintTree()` and `NewApplication()`.
+Call `Build()` once and reuse the result for both `Describe().Print()` and `NewApplication()`.
 
 ## Sources
 
