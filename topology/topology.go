@@ -1,8 +1,6 @@
 package topology
 
 import (
-	"fmt"
-
 	"github.com/hugolhafner/go-streams/processor"
 	"github.com/hugolhafner/go-streams/serde"
 )
@@ -185,46 +183,4 @@ func (t *Topology) SinkNodes() []Node {
 		}
 	}
 	return sinkNodes
-}
-
-func (t *Topology) PrintTree() {
-	visited := make(map[string]bool)
-	for _, source := range t.sources {
-		t.printNode(source, "", visited)
-	}
-}
-
-func (t *Topology) printNode(name, prefix string, visited map[string]bool) {
-	if visited[name] {
-		return
-	}
-	visited[name] = true
-
-	node, exists := t.nodes[name]
-	if !exists {
-		return
-	}
-
-	msg := fmt.Sprintf("%s- %s (%s", prefix, name, node.Type().String())
-	if node.Type() == NodeTypeSource {
-		if sn, ok := node.(*sourceNode); ok {
-			msg += ", topic=" + sn.topic
-		}
-	} else if node.Type() == NodeTypeSink {
-		if sn, ok := node.(*sinkNode); ok {
-			msg += ", topic=%s" + sn.topic
-		}
-	}
-	msg += ")"
-	fmt.Printf("%s\n", msg)
-
-	children, exists := t.edges[name]
-	if !exists {
-		return
-	}
-
-	for _, child := range children {
-		newPrefix := prefix + "  "
-		t.printNode(child, newPrefix, visited)
-	}
 }

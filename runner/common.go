@@ -79,6 +79,17 @@ func processRecordWithRetry(
 	carrier := streamsotel.NewKafkaHeadersCarrier(&rec.Headers)
 	ctx = tel.Propagator.Extract(ctx, carrier)
 
+	if !rec.Timestamp.IsZero() {
+		// clamps time to prevent producer clock skew from producing negatives
+		lag := max(time.Since(rec.Timestamp).Seconds(), 0)
+		tel.ConsumerLag.Record(
+			ctx, lag, metric.WithAttributes(
+				semconv.MessagingDestinationName(rec.Topic),
+				semconv.MessagingDestinationPartitionID(strconv.FormatInt(int64(rec.Partition), 10)),
+			),
+		)
+	}
+
 	processStart := time.Now()
 	ctx, span := tel.Tracer.Start(
 		ctx, rec.Topic+" process",
@@ -145,21 +156,15 @@ func processRecordWithRetry(
 		lastErr = err
 
 		span.RecordError(err)
+
+		action := handler.Handle(ctx, ec)
+
 		tel.Errors.Add(
 			ctx, 1, metric.WithAttributes(
 				semconv.MessagingDestinationName(rec.Topic),
 				streamsotel.AttrErrorNode.String(ec.NodeName),
 				streamsotel.AttrErrorPhase.String(ec.Phase.String()),
-			),
-		)
-
-		action := handler.Handle(ctx, ec)
-
-		tel.ErrorHandlerActions.Add(
-			ctx, 1, metric.WithAttributes(
 				streamsotel.AttrErrorAction.String(action.Type().String()),
-				semconv.MessagingDestinationName(rec.Topic),
-				streamsotel.AttrErrorPhase.String(ec.Phase.String()),
 			),
 		)
 
@@ -171,6 +176,12 @@ func processRecordWithRetry(
 
 		case errorhandler.ActionTypeRetry:
 			l.Debug("Retrying record", "attempt", ec.Attempt, "offset", rec.Offset)
+			tel.ProcessRetries.Add(
+				ctx, 1, metric.WithAttributes(
+					semconv.MessagingDestinationName(rec.Topic),
+					streamsotel.AttrErrorPhase.String(ec.Phase.String()),
+				),
+			)
 			ec = ec.IncrementAttempt()
 
 			if ec.Attempt%10 == 0 {

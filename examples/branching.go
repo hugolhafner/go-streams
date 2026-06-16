@@ -42,7 +42,7 @@ func BranchProcessor() {
 	kstream.ToWithValueSerde(regularOrders, regularTopic, serde.JSON[Order]())
 
 	t := builder.Build()
-	t.PrintTree()
+	t.Describe().Print()
 
 	client, err := kafka.NewKgoClient()
 	if err != nil {

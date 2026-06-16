@@ -46,6 +46,8 @@ type PartitionedRunner struct {
 
 	logger    logger.Logger
 	telemetry *streamsotel.Telemetry
+
+	observableRegs []metric.Registration
 }
 
 // NewPartitionedRunner creates a factory function for PartitionedRunner
@@ -84,6 +86,40 @@ func NewPartitionedRunner(opts ...PartitionedOption) Factory {
 	}
 }
 
+func (r *PartitionedRunner) registerObservables() error {
+	if err := r.registerDepthGauge(r.telemetry.PartitionedQueueDepth, r.WorkerQueueDepths); err != nil {
+		return err
+	}
+
+	return r.registerDepthGauge(r.telemetry.PartitionedPausedDepth, r.PendingDepths)
+}
+
+func (r *PartitionedRunner) registerDepthGauge(
+	gauge metric.Int64ObservableGauge, depths func() map[kafka.TopicPartition]int,
+) error {
+	reg, err := r.telemetry.RegisterCallback(
+		func(_ context.Context, observer metric.Observer) error {
+			for tp, depth := range depths() {
+				observer.ObserveInt64(
+					gauge, int64(depth), metric.WithAttributes(
+						semconv.MessagingDestinationName(tp.Topic),
+						semconv.MessagingDestinationPartitionID(strconv.FormatInt(int64(tp.Partition), 10)),
+					),
+				)
+			}
+
+			return nil
+		}, gauge,
+	)
+	if err != nil {
+		return err
+	}
+
+	r.observableRegs = append(r.observableRegs, reg)
+
+	return nil
+}
+
 // Run starts the partitioned runner and blocks until the context is cancelled
 // or a fatal error occurs.
 func (r *PartitionedRunner) Run(ctx context.Context) error {
@@ -92,6 +128,10 @@ func (r *PartitionedRunner) Run(ctx context.Context) error {
 	var cancel context.CancelFunc
 	r.runCtx, cancel = context.WithCancel(ctx)
 	defer cancel()
+
+	if err := r.registerObservables(); err != nil {
+		return fmt.Errorf("failed to register telemetry observables: %w", err)
+	}
 
 	topics := r.topology.SourceTopics()
 	if err := r.consumer.Subscribe(topics, r); err != nil {
@@ -162,6 +202,7 @@ func (r *PartitionedRunner) doPoll(ctx context.Context) error {
 			streamsotel.AttrPollStatus.String(streamsotel.StatusSuccess),
 		),
 	)
+	tel.PollRecords.Record(ctx, int64(len(records)))
 
 	receiveSpan.SetAttributes(semconv.MessagingBatchMessageCount(len(records)))
 	receiveSpan.End()
@@ -211,7 +252,7 @@ func (r *PartitionedRunner) doPoll(ctx context.Context) error {
 		r.pendingMu.Unlock()
 
 		r.consumer.PausePartitions(tp)
-		r.logger.Debug(
+		r.logger.Warn(
 			"Paused partition due to backpressure",
 			"topic", tp.Topic,
 			"partition", tp.Partition,
@@ -258,7 +299,7 @@ func (r *PartitionedRunner) dispatchPending(ctx context.Context) {
 	if len(toResume) > 0 {
 		r.consumer.ResumePartitions(toResume...)
 		for _, tp := range toResume {
-			r.logger.Debug(
+			r.logger.Info(
 				"Resumed partition after backpressure drain",
 				"topic", tp.Topic,
 				"partition", tp.Partition,
@@ -276,6 +317,12 @@ func (r *PartitionedRunner) getWorker(tp kafka.TopicPartition) (*partitionWorker
 
 func (r *PartitionedRunner) OnAssigned(ctx context.Context, partitions []kafka.TopicPartition) {
 	r.logger.Info("Partitions assigned", "partitions", partitions)
+
+	r.telemetry.RebalanceCount.Add(
+		ctx, 1, metric.WithAttributes(
+			streamsotel.AttrRebalanceType.String(streamsotel.RebalanceTypeAssigned),
+		),
+	)
 
 	if err := r.taskManager.CreateTasks(partitions); err != nil {
 		r.logger.Error("Failed to create tasks for assigned partitions", "error", err)
@@ -385,6 +432,11 @@ func (r *PartitionedRunner) OnRevoked(ctx context.Context, partitions []kafka.To
 			streamsotel.AttrRunnerType.String(streamsotel.RunnerTypePartitioned),
 		),
 	)
+	r.telemetry.RebalanceCount.Add(
+		ctx, 1, metric.WithAttributes(
+			streamsotel.AttrRebalanceType.String(streamsotel.RebalanceTypeRevoked),
+		),
+	)
 
 	r.mu.Lock()
 	for _, tp := range partitions {
@@ -451,6 +503,12 @@ func (r *PartitionedRunner) shutdown() {
 		r.logger.Error("Failed to close task manager", "error", err)
 	}
 
+	for _, reg := range r.observableRegs {
+		if err := reg.Unregister(); err != nil {
+			r.logger.Error("Failed to unregister telemetry observable", "error", err)
+		}
+	}
+
 	r.logger.Info("Partitioned runner shutdown complete")
 }
 
@@ -473,16 +531,16 @@ func (r *PartitionedRunner) WorkerQueueDepths() map[kafka.TopicPartition]int {
 	return depths
 }
 
-// PendingCounts returns the number of pending records per partition
-func (r *PartitionedRunner) PendingCounts() map[kafka.TopicPartition]int {
+// PendingDepths returns the number of pending records per partition
+func (r *PartitionedRunner) PendingDepths() map[kafka.TopicPartition]int {
 	r.pendingMu.Lock()
 	defer r.pendingMu.Unlock()
 
-	counts := make(map[kafka.TopicPartition]int, len(r.pending))
+	depths := make(map[kafka.TopicPartition]int, len(r.pending))
 	for tp, records := range r.pending {
-		counts[tp] = len(records)
+		depths[tp] = len(records)
 	}
-	return counts
+	return depths
 }
 
 // PausedPartitions returns the set of partitions currently paused due to backpressure

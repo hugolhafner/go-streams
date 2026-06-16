@@ -23,12 +23,18 @@ func TestNewTelemetry_WithProviders(t *testing.T) {
 	require.NotNil(t, tel.Propagator)
 	require.NotNil(t, tel.MessagesConsumed)
 	require.NotNil(t, tel.PollDuration)
+	require.NotNil(t, tel.ConsumerLag)
+	require.NotNil(t, tel.PollRecords)
 	require.NotNil(t, tel.ProcessDuration)
+	require.NotNil(t, tel.ProcessRetries)
 	require.NotNil(t, tel.MessagesProduced)
 	require.NotNil(t, tel.ProduceDuration)
 	require.NotNil(t, tel.Errors)
-	require.NotNil(t, tel.ErrorHandlerActions)
 	require.NotNil(t, tel.TasksActive)
+	require.NotNil(t, tel.RebalanceCount)
+	require.NotNil(t, tel.NodeRecords)
+	require.NotNil(t, tel.NodeLatency)
+	require.NotNil(t, tel.EdgeRecords)
 }
 
 func TestNewTelemetry_NilProviders(t *testing.T) {

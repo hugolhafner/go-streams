@@ -107,7 +107,7 @@ func EventSourcing() {
 	kstream.ToWithValueSerde(orderUpdated, "processed-order-updated", serde.JSON[OrderUpdatedData]())
 
 	t := builder.Build()
-	t.PrintTree()
+	t.Describe().Print()
 
 	client, err := kafka.NewKgoClient()
 	if err != nil {

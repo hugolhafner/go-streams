@@ -23,13 +23,45 @@ var (
 	ErrClosed         = errors.New("application is closed")
 )
 
+var defaultNameGenerator = newNameGenerator()
+
+type nameGenerator struct {
+	prefix string
+	count  int
+
+	mu sync.Mutex
+}
+
+func newNameGenerator() *nameGenerator {
+	return &nameGenerator{
+		prefix: "STREAM",
+		count:  0,
+	}
+}
+
+func (ng *nameGenerator) next() string {
+	ng.mu.Lock()
+	defer ng.mu.Unlock()
+
+	ng.count++
+	return fmt.Sprintf("%s_%d", ng.prefix, ng.count)
+}
+
 type Config struct {
+	ID string
+
 	Logger         logger.Logger
 	TracerProvider trace.TracerProvider
 	MeterProvider  metric.MeterProvider
 }
 
 type ConfigOption func(*Config)
+
+func WithID(id string) ConfigOption {
+	return func(c *Config) {
+		c.ID = id
+	}
+}
 
 func WithLogger(logger logger.Logger) ConfigOption {
 	return func(c *Config) {
@@ -53,6 +85,7 @@ func WithMeterProvider(mp metric.MeterProvider) ConfigOption {
 
 func defaultConfig() Config {
 	return Config{
+		ID:     defaultNameGenerator.next(),
 		Logger: logger.NewNoopLogger(),
 	}
 }
@@ -87,11 +120,15 @@ func NewApplicationWithConfig(client kafka.Client, topology *topology.Topology, 
 		return nil, fmt.Errorf("failed to create telemetry: %w", err)
 	}
 
+	if config.Logger == nil {
+		config.Logger = logger.NewNoopLogger()
+	}
+
 	return &Application{
 		topology:  topology,
 		config:    config,
 		client:    client,
-		logger:    config.Logger,
+		logger:    config.Logger.With("stream", config.ID),
 		telemetry: telem,
 		closedCh:  make(chan struct{}),
 	}, nil

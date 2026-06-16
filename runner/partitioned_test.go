@@ -433,9 +433,11 @@ func TestPartitionedRunner_RebalanceAssign(t *testing.T) {
 	}()
 
 	// Wait for runner to subscribe before triggering assignment
-	require.Eventually(t, func() bool {
-		return len(client.Subscriptions()) > 0
-	}, 3*time.Second, 10*time.Millisecond, "runner should subscribe")
+	require.Eventually(
+		t, func() bool {
+			return len(client.Subscriptions()) > 0
+		}, 3*time.Second, 10*time.Millisecond, "runner should subscribe",
+	)
 
 	// Manually trigger assignment of new partitions
 	client.TriggerAssign(
@@ -446,9 +448,11 @@ func TestPartitionedRunner_RebalanceAssign(t *testing.T) {
 	)
 
 	// Verify workers were created
-	require.Eventually(t, func() bool {
-		return pr.WorkerCount() == 2
-	}, 3*time.Second, 10*time.Millisecond, "workers should be created for assigned partitions")
+	require.Eventually(
+		t, func() bool {
+			return pr.WorkerCount() == 2
+		}, 3*time.Second, 10*time.Millisecond, "workers should be created for assigned partitions",
+	)
 
 	cancel()
 
@@ -491,9 +495,11 @@ func TestPartitionedRunner_RebalanceRevoke(t *testing.T) {
 	}()
 
 	// Wait for initial workers
-	require.Eventually(t, func() bool {
-		return pr.WorkerCount() == 2
-	}, 3*time.Second, 50*time.Millisecond, "initial workers should be created")
+	require.Eventually(
+		t, func() bool {
+			return pr.WorkerCount() == 2
+		}, 3*time.Second, 50*time.Millisecond, "initial workers should be created",
+	)
 
 	// Trigger revocation of one partition
 	client.TriggerRevoke(
@@ -503,9 +509,11 @@ func TestPartitionedRunner_RebalanceRevoke(t *testing.T) {
 	)
 
 	// Wait for worker to be removed
-	require.Eventually(t, func() bool {
-		return pr.WorkerCount() == 1
-	}, 3*time.Second, 50*time.Millisecond, "worker should be removed after revoke")
+	require.Eventually(
+		t, func() bool {
+			return pr.WorkerCount() == 1
+		}, 3*time.Second, 50*time.Millisecond, "worker should be removed after revoke",
+	)
 
 	cancel()
 
@@ -719,9 +727,11 @@ func TestPartitionedRunner_BackpressurePausesSlowPartition(t *testing.T) {
 	}()
 
 	// Wait for fast partition to process at least 5 records while slow partition is still processing
-	require.Eventually(t, func() bool {
-		return p1Count.Load() >= 5
-	}, 3*time.Second, 50*time.Millisecond, "fast partition should not be starved by slow partition")
+	require.Eventually(
+		t, func() bool {
+			return p1Count.Load() >= 5
+		}, 3*time.Second, 50*time.Millisecond, "fast partition should not be starved by slow partition",
+	)
 
 	cancel()
 
@@ -889,9 +899,11 @@ func TestPartitionedRunner_PendingClearedOnRevoke(t *testing.T) {
 	}()
 
 	// Wait for backpressure to kick in
-	require.Eventually(t, func() bool {
-		return len(pr.PendingCounts()) > 0
-	}, 3*time.Second, 50*time.Millisecond, "backpressure should kick in")
+	require.Eventually(
+		t, func() bool {
+			return len(pr.PendingDepths()) > 0
+		}, 3*time.Second, 50*time.Millisecond, "backpressure should kick in",
+	)
 
 	// Revoke the partition
 	tp := kafka.TopicPartition{Topic: "input", Partition: 0}
@@ -899,9 +911,11 @@ func TestPartitionedRunner_PendingClearedOnRevoke(t *testing.T) {
 	client.TriggerRevoke([]kafka.TopicPartition{tp})
 
 	// Verify pending is cleared after revoke
-	require.Eventually(t, func() bool {
-		return len(pr.PendingCounts()) == 0 && len(pr.PausedPartitions()) == 0
-	}, 3*time.Second, 50*time.Millisecond, "pending and paused should be cleared after revoke")
+	require.Eventually(
+		t, func() bool {
+			return len(pr.PendingDepths()) == 0 && len(pr.PausedPartitions()) == 0
+		}, 3*time.Second, 50*time.Millisecond, "pending and paused should be cleared after revoke",
+	)
 
 	cancel()
 
@@ -1056,9 +1070,11 @@ func TestPartitionWorker_ContextCancelDrains(t *testing.T) {
 	}
 
 	// Wait for at least one record to be produced
-	require.Eventually(t, func() bool {
-		return len(client.ProducedRecords()) >= 1
-	}, 3*time.Second, 10*time.Millisecond, "at least one record should be produced")
+	require.Eventually(
+		t, func() bool {
+			return len(client.ProducedRecords()) >= 1
+		}, 3*time.Second, 10*time.Millisecond, "at least one record should be produced",
+	)
 
 	// Cancel context (shutdown path) - should drain remaining records
 	cancel()
@@ -1120,9 +1136,11 @@ func TestPartitionWorker_DrainTimeoutRespected(t *testing.T) {
 	require.True(t, worker.TrySubmit(ctx, r))
 
 	// Wait for the worker to pick up the record from the channel
-	require.Eventually(t, func() bool {
-		return worker.QueueDepth() == 0
-	}, 3*time.Second, 10*time.Millisecond, "worker should pick up the record")
+	require.Eventually(
+		t, func() bool {
+			return worker.QueueDepth() == 0
+		}, 3*time.Second, 10*time.Millisecond, "worker should pick up the record",
+	)
 
 	// Cancel context - drain should start but timeout after 200ms
 	cancel()

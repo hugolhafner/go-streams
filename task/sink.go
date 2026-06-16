@@ -20,10 +20,19 @@ type sinkHandler struct {
 	node      topology.SinkNode
 	producer  kafka.Producer
 	telemetry *streamsotel.Telemetry
+
+	// precomputed to reduce overhead
+	sinkAttrs           metric.MeasurementOption // node name + type=sink
+	producedAttrs       metric.MeasurementOption // destination name
+	produceSuccessAttrs metric.MeasurementOption // destination name + status=success
+	publishSpanName     string                   // "<topic> publish"
 }
 
 func (s *sinkHandler) Process(ctx context.Context, rec *record.UntypedRecord) error {
 	topic := s.node.Topic()
+	tel := s.telemetry
+
+	nodeStart := time.Now()
 
 	key, err := s.node.KeySerde().Serialise(topic, rec.Key)
 	if err != nil {
@@ -35,10 +44,8 @@ func (s *sinkHandler) Process(ctx context.Context, rec *record.UntypedRecord) er
 		return NewSerdeError(fmt.Errorf("serialize value for topic %s: %w", topic, err))
 	}
 
-	tel := s.telemetry
-
 	ctx, span := tel.Tracer.Start(
-		ctx, topic+" publish",
+		ctx, s.publishSpanName,
 		trace.WithSpanKind(trace.SpanKindProducer),
 		trace.WithAttributes(
 			semconv.MessagingSystemKafka,
@@ -55,30 +62,27 @@ func (s *sinkHandler) Process(ctx context.Context, rec *record.UntypedRecord) er
 	tel.Propagator.Inject(ctx, carrier)
 
 	produceStart := time.Now()
-	produceStatus := streamsotel.StatusSuccess
+	produceAttrs := s.produceSuccessAttrs
 
 	defer func() {
-		tel.ProduceDuration.Record(
-			ctx, time.Since(produceStart).Seconds(), metric.WithAttributes(
-				semconv.MessagingDestinationName(topic),
-				streamsotel.AttrProduceStatus.String(produceStatus),
-			),
-		)
+		tel.ProduceDuration.Record(ctx, time.Since(produceStart).Seconds(), produceAttrs)
 	}()
 
 	produceErr := s.producer.Send(ctx, topic, key, value, headers)
 	if produceErr != nil {
 		span.RecordError(produceErr)
 		span.SetStatus(codes.Error, produceErr.Error())
-		produceStatus = streamsotel.StatusError
+		produceAttrs = metric.WithAttributes(
+			semconv.MessagingDestinationName(topic),
+			streamsotel.AttrProduceStatus.String(streamsotel.StatusError),
+		)
 		return NewProductionError(fmt.Errorf("produce to %s: %w", topic, produceErr), s.name)
 	}
 
-	tel.MessagesProduced.Add(
-		ctx, 1, metric.WithAttributes(
-			semconv.MessagingDestinationName(topic),
-		),
-	)
+	tel.MessagesProduced.Add(ctx, 1, s.producedAttrs)
+
+	tel.NodeRecords.Add(ctx, 1, s.sinkAttrs)
+	tel.NodeLatency.Record(ctx, time.Since(nodeStart).Seconds(), s.sinkAttrs)
 
 	return nil
 }
