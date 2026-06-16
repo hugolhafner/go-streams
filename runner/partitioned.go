@@ -13,7 +13,6 @@ import (
 	streamsotel "github.com/hugolhafner/go-streams/otel"
 	"github.com/hugolhafner/go-streams/task"
 	"github.com/hugolhafner/go-streams/topology"
-	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 	semconv "go.opentelemetry.io/otel/semconv/v1.39.0"
 	"go.opentelemetry.io/otel/trace"
@@ -48,8 +47,7 @@ type PartitionedRunner struct {
 	logger    logger.Logger
 	telemetry *streamsotel.Telemetry
 
-	shutdownCallbacks   []func() error
-	shutdownCallbacksMu sync.Mutex
+	observableRegs []metric.Registration
 }
 
 // NewPartitionedRunner creates a factory function for PartitionedRunner
@@ -89,68 +87,35 @@ func NewPartitionedRunner(opts ...PartitionedOption) Factory {
 }
 
 func (r *PartitionedRunner) registerObservables() error {
-	registrations := []struct {
-		cb         metric.Callback
-		observable metric.Observable
-	}{
-		{
-			cb: func(ctx context.Context, observer metric.Observer) error {
-				for k, v := range r.WorkerQueueDepths() {
-					observer.ObserveInt64(
-						r.telemetry.PartitionedQueueDepth, int64(v), metric.WithAttributes(
-							attribute.String("topic", k.Topic),
-							attribute.Int("partition", int(k.Partition)),
-						),
-					)
-				}
-
-				return nil
-			},
-			observable: r.telemetry.PartitionedQueueDepth,
-		},
-		{
-			cb: func(ctx context.Context, observer metric.Observer) error {
-				for k, v := range r.PendingDepths() {
-					observer.ObserveInt64(
-						r.telemetry.PartitionedPausedDepth, int64(v), metric.WithAttributes(
-							attribute.String("topic", k.Topic),
-							attribute.Int("partition", int(k.Partition)),
-						),
-					)
-				}
-				return nil
-			},
-			observable: r.telemetry.PartitionedPausedDepth,
-		},
+	if err := r.registerDepthGauge(r.telemetry.PartitionedQueueDepth, r.WorkerQueueDepths); err != nil {
+		return err
 	}
 
-	unregisters := make([]metric.Registration, 0, len(registrations))
-	defer func() {
-		r.shutdownCallbacksMu.Lock()
-		defer r.shutdownCallbacksMu.Unlock()
+	return r.registerDepthGauge(r.telemetry.PartitionedPausedDepth, r.PendingDepths)
+}
 
-		r.shutdownCallbacks = append(
-			r.shutdownCallbacks, func() error {
-				var firstErr error
-				for _, c := range unregisters {
-					if err := c.Unregister(); err != nil && firstErr == nil {
-						firstErr = err
-					}
-				}
+func (r *PartitionedRunner) registerDepthGauge(
+	gauge metric.Int64ObservableGauge, depths func() map[kafka.TopicPartition]int,
+) error {
+	reg, err := r.telemetry.RegisterCallback(
+		func(_ context.Context, observer metric.Observer) error {
+			for tp, depth := range depths() {
+				observer.ObserveInt64(
+					gauge, int64(depth), metric.WithAttributes(
+						semconv.MessagingDestinationName(tp.Topic),
+						semconv.MessagingDestinationPartitionID(strconv.FormatInt(int64(tp.Partition), 10)),
+					),
+				)
+			}
 
-				return firstErr
-			},
-		)
-	}()
-
-	for _, reg := range registrations {
-		c, err := r.telemetry.RegisterCallback(reg.cb, reg.observable)
-		if err != nil {
-			return err
-		}
-
-		unregisters = append(unregisters, c)
+			return nil
+		}, gauge,
+	)
+	if err != nil {
+		return err
 	}
+
+	r.observableRegs = append(r.observableRegs, reg)
 
 	return nil
 }
@@ -538,19 +503,11 @@ func (r *PartitionedRunner) shutdown() {
 		r.logger.Error("Failed to close task manager", "error", err)
 	}
 
-	r.logger.Debug("Running shutdown callbacks")
-	// wrapped to ensure defer call
-	func() {
-		r.shutdownCallbacksMu.Lock()
-		defer r.shutdownCallbacksMu.Unlock()
-
-		for _, cb := range r.shutdownCallbacks {
-			if err := cb(); err != nil {
-				r.logger.Error("Error during shutdown callback", "error", err)
-			}
+	for _, reg := range r.observableRegs {
+		if err := reg.Unregister(); err != nil {
+			r.logger.Error("Failed to unregister telemetry observable", "error", err)
 		}
-	}()
-	r.logger.Debug("Shutdown callback running succeeded")
+	}
 
 	r.logger.Info("Partitioned runner shutdown complete")
 }

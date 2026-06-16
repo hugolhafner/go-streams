@@ -258,10 +258,6 @@ func NewTelemetry(tp trace.TracerProvider, mp metric.MeterProvider, prop propaga
 
 // RegisterCallback registers an observable callback for the meter
 func (t *Telemetry) RegisterCallback(f metric.Callback, observable metric.Observable) (metric.Registration, error) {
-	if t.meter == nil {
-		return nil, nil
-	}
-
 	return t.meter.RegisterCallback(f, observable)
 }
 
