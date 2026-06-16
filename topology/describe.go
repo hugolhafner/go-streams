@@ -87,16 +87,25 @@ func (d Description) Print() {
 		edges[edge.Source] = append(edges[edge.Source], edge.Target)
 	}
 
+	visited := make(map[string]bool)
 	for _, node := range d.Nodes {
 		if node.Type != NodeTypeSource {
 			continue
 		}
 
-		printNode(node, "", nodes, edges)
+		printNode(node, "", nodes, edges, visited)
 	}
 }
 
-func printNode(node NodeInfo, prefix string, nodes map[string]NodeInfo, edges map[string][]string) {
+func printNode(
+	node NodeInfo, prefix string, nodes map[string]NodeInfo, edges map[string][]string,
+	visited map[string]bool,
+) {
+	if visited[node.ID] {
+		return
+	}
+	visited[node.ID] = true
+
 	msg := fmt.Sprintf("%s- %s (%s", prefix, node.Name, node.Type.String())
 	if node.Type == NodeTypeSource || node.Type == NodeTypeSink {
 		msg += ", topic=" + node.Topic
@@ -107,6 +116,8 @@ func printNode(node NodeInfo, prefix string, nodes map[string]NodeInfo, edges ma
 
 	for _, child := range edges[node.ID] {
 		newPrefix := prefix + "  "
-		printNode(nodes[child], newPrefix, nodes, edges)
+		if childNode, ok := nodes[child]; ok {
+			printNode(childNode, newPrefix, nodes, edges, visited)
+		}
 	}
 }

@@ -344,17 +344,40 @@ func TestPartitionedRunner_OTel_QueueDepth(t *testing.T) {
 	topo := createTestTopology()
 
 	client := mockkafka.NewClient(mockkafka.WithGroupID("test-group"))
+	client.AddRecords(
+		"input", 0,
+		mockkafka.SimpleRecord("k1", "v1"),
+	)
 
 	factory, err := task.NewTopologyTaskFactory(topo, logger.NewNoopLogger(), task.WithTelemetry(tel))
 	require.NoError(t, err)
 
 	runnerFactory := NewPartitionedRunner(WithChannelBufferSize(10))
-	_, err = runnerFactory(topo, factory, client, client, tel)
+	r, err := runnerFactory(topo, factory, client, client, tel)
 	require.NoError(t, err)
+
+	pr := r.(*PartitionedRunner)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	done := make(chan error, 1)
+	go func() {
+		done <- r.Run(ctx)
+	}()
+
+	require.Eventually(
+		t, func() bool {
+			return len(pr.WorkerQueueDepths()) > 0
+		}, 3*time.Second, 50*time.Millisecond, "partition worker should be created",
+	)
 
 	var rm metricdata.ResourceMetrics
 	err = metricReader.Collect(context.Background(), &rm)
 	require.NoError(t, err)
+
+	cancel()
+	<-done
 
 	metrics := collectMetrics(rm)
 	assertMetricExists(t, metrics, "stream.partitioned.queue.depth")
@@ -432,11 +455,15 @@ func TestSingleThreaded_OTel_RebalanceCounted_WhenCreateTasksFails(t *testing.T)
 	err = metricReader.Collect(context.Background(), &rm)
 	require.NoError(t, err)
 
-	require.Equal(t, int64(1),
+	require.Equal(
+		t, int64(1),
 		sumInt64(t, rm, "stream.rebalance.count", "stream.rebalance.type", "assigned"),
-		"assigned rebalance should be counted even when CreateTasks fails")
-	require.Equal(t, int64(0), sumInt64(t, rm, "stream.tasks.active", "", ""),
-		"tasks.active should not increment when CreateTasks fails")
+		"assigned rebalance should be counted even when CreateTasks fails",
+	)
+	require.Equal(
+		t, int64(0), sumInt64(t, rm, "stream.tasks.active", "", ""),
+		"tasks.active should not increment when CreateTasks fails",
+	)
 }
 
 func findMetric(rm metricdata.ResourceMetrics, name string) (metricdata.Metrics, bool) {

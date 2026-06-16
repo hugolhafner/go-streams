@@ -27,6 +27,8 @@ type Telemetry struct {
 	Tracer     trace.Tracer
 	Propagator propagation.TextMapPropagator
 
+	meter metric.Meter
+
 	// Consumer metrics
 	MessagesConsumed metric.Int64Counter
 	PollDuration     metric.Float64Histogram
@@ -47,8 +49,8 @@ type Telemetry struct {
 	// Runner state metrics
 	TasksActive            metric.Int64UpDownCounter
 	RebalanceCount         metric.Int64Counter
-	PartitionedQueueDepth  metric.Int64Gauge
-	PartitionedPausedDepth metric.Int64Gauge
+	PartitionedQueueDepth  metric.Int64ObservableGauge
+	PartitionedPausedDepth metric.Int64ObservableGauge
 
 	// Service graph metrics
 	NodeRecords metric.Int64Counter
@@ -213,7 +215,7 @@ func NewTelemetry(tp trace.TracerProvider, mp metric.MeterProvider, prop propaga
 		return nil, err
 	}
 
-	partitionQueueDepth, err := meter.Int64Gauge(
+	partitionQueueDepth, err := meter.Int64ObservableGauge(
 		"stream.partitioned.queue.depth",
 		metric.WithDescription("Total records queued across all partition workers"),
 		metric.WithUnit(unitMessage),
@@ -222,7 +224,7 @@ func NewTelemetry(tp trace.TracerProvider, mp metric.MeterProvider, prop propaga
 		return nil, err
 	}
 
-	partitionPausedDepth, err := meter.Int64Gauge(
+	partitionPausedDepth, err := meter.Int64ObservableGauge(
 		"stream.partitioned.paused.depth",
 		metric.WithDescription("Total records queued in paused partitions"),
 		metric.WithUnit(unitMessage),
@@ -234,6 +236,7 @@ func NewTelemetry(tp trace.TracerProvider, mp metric.MeterProvider, prop propaga
 	return &Telemetry{
 		Tracer:                 tracer,
 		Propagator:             prop,
+		meter:                  meter,
 		MessagesConsumed:       messagesConsumed,
 		PollDuration:           pollDuration,
 		ConsumerLag:            consumerLag,
@@ -251,6 +254,15 @@ func NewTelemetry(tp trace.TracerProvider, mp metric.MeterProvider, prop propaga
 		NodeLatency:            nodeLatency,
 		EdgeRecords:            edgeRecords,
 	}, nil
+}
+
+// RegisterCallback registers an observable callback for the meter
+func (t *Telemetry) RegisterCallback(f metric.Callback, observable metric.Observable) (metric.Registration, error) {
+	if t.meter == nil {
+		return nil, nil
+	}
+
+	return t.meter.RegisterCallback(f, observable)
 }
 
 // Noop returns a Telemetry instance with all noop instruments
