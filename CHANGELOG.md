@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.0](https://github.com/hugolhafner/go-streams/compare/v0.3.0...v0.4.0) (2026-06-16)
+
+
+### Features
+
+* otel ([#42](https://github.com/hugolhafner/go-streams/issues/42)) ([3d1a84f](https://github.com/hugolhafner/go-streams/commit/3d1a84ff71e22bc19957bd5fb04ae07e9c01d98c))
+
 ## [0.3.0](https://github.com/hugolhafner/go-streams/compare/v0.2.0...v0.3.0) (2026-02-14)
 
 
