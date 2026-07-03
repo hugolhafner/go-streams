@@ -51,6 +51,9 @@ func defaultSingleThreadedConfig() SingleThreadedConfig {
 type PartitionedConfig struct {
 	BaseConfig
 	ChannelBufferSize int
+	// ResumeThreshold is the fraction of ChannelBufferSize a paused partition's
+	// worker queue must drain to before the partition is resumed
+	ResumeThreshold float64
 	// WorkerShutdownTimeout is the maximum time a single worker will spend
 	// draining its records after context cancellation
 	WorkerShutdownTimeout time.Duration
@@ -64,6 +67,7 @@ func defaultPartitionedConfig() PartitionedConfig {
 	return PartitionedConfig{
 		BaseConfig:            defaultBaseConfig(),
 		ChannelBufferSize:     100,
+		ResumeThreshold:       0.5,
 		WorkerShutdownTimeout: 30 * time.Second,
 		DrainTimeout:          60 * time.Second,
 	}

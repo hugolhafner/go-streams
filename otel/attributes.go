@@ -52,3 +52,14 @@ const (
 	RebalanceTypeAssigned = "assigned"
 	RebalanceTypeRevoked  = "revoked"
 )
+
+// Backpressure attributes
+const (
+	AttrBackpressureEvent = attribute.Key("stream.backpressure.event")
+)
+
+// Backpressure event values
+const (
+	BackpressureEventPaused  = "paused"
+	BackpressureEventResumed = "resumed"
+)
