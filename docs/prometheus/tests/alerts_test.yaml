@@ -1,0 +1,84 @@
+# promtool unit tests for the generated go-streams alerting rules.
+#
+# Run from docs/prometheus:
+#   docker run --rm --entrypoint /bin/promtool -v "$PWD":/w -w /w/tests \
+#     prom/prometheus:latest test rules alerts_test.yaml
+# or with a local install: cd tests && promtool test rules alerts_test.yaml
+
+rule_files:
+  - ../rules/go-streams-alerts.yaml
+
+evaluation_interval: 1m
+
+tests:
+  # GoStreamsHighErrorRatio fires at 2% errors, stays silent at 0.5%, and the
+  # zero-traffic guard suppresses the Inf ratio of an app with errors but no
+  # consumption. The critical tier (5%) must stay silent at 2%.
+  - interval: 1m
+    input_series:
+      - series: 'messaging_consumer_messages_total{job="app-hot"}'
+        values: '0+6000x30' # 100 records/s
+      - series: 'stream_errors_total{job="app-hot"}'
+        values: '0+120x30' # 2 errors/s -> 2%
+      - series: 'messaging_consumer_messages_total{job="app-ok"}'
+        values: '0+6000x30'
+      - series: 'stream_errors_total{job="app-ok"}'
+        values: '0+30x30' # 0.5 errors/s -> 0.5%
+      - series: 'messaging_consumer_messages_total{job="app-idle"}'
+        values: '100x30' # flat counter: consumption stopped
+      - series: 'stream_errors_total{job="app-idle"}'
+        values: '0+60x30' # errors / 0 consumed = Inf, must be suppressed
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: GoStreamsHighErrorRatio
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              job: app-hot
+            exp_annotations:
+              summary: "go-streams app-hot error ratio above 1%"
+              description: "2% of consumed records errored over the last 5m (threshold 1%). Break it down by stream_error_phase and stream_error_node on the Application Drill-Down dashboard."
+      - eval_time: 20m
+        alertname: GoStreamsCriticalErrorRatio
+        exp_alerts: []
+
+  # Consumer-lag tiering: all observations land in the (30s, 120s] bucket, so
+  # p99 interpolates to 119.1s — above the 30s warning, below the 120s critical.
+  - interval: 1m
+    input_series:
+      - series: 'stream_consumer_lag_bucket{job="app-lag", le="30"}'
+        values: '0x30'
+      - series: 'stream_consumer_lag_bucket{job="app-lag", le="120"}'
+        values: '0+60x30'
+      - series: 'stream_consumer_lag_bucket{job="app-lag", le="+Inf"}'
+        values: '0+60x30'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: GoStreamsConsumerLagHigh
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              job: app-lag
+            exp_annotations:
+              summary: "go-streams app-lag p99 consumer lag above 30s"
+              description: "Records are 119.1s old at p99 when consumed — processing is falling behind production. Check the Runner & Saturation dashboard and consider scaling out."
+      - eval_time: 20m
+        alertname: GoStreamsConsumerLagCritical
+        exp_alerts: []
+
+  # A single Fail action pages immediately (no `for`); the 10m increase window
+  # keeps it raised afterwards.
+  - interval: 1m
+    input_series:
+      - series: 'stream_errors_total{job="app-fatal", stream_error_action="fail"}'
+        values: '0 0 0 0 0 1 1 1 1 1 1'
+    alert_rule_test:
+      - eval_time: 8m
+        alertname: GoStreamsFailActionTriggered
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              job: app-fatal
+            exp_annotations:
+              summary: "go-streams app-fatal hit a fatal error and is stopping"
+              description: "An error handler in app-fatal returned the Fail action within the last 10 minutes; the runner stops processing. Find the failing node via the stream_error_node label and the application logs."

@@ -67,6 +67,8 @@ Other conventions baked in:
   than editing the JSON by hand.
 - Keep the shared `go-streams` tag if you add dashboards to the set — that is what powers the
   cross-navigation dropdown.
+- A matching **Prometheus alert rule set** lives in [`../prometheus/`](../prometheus/README.md),
+  generated the same way - the stat thresholds on these dashboards mirror those alerts.
 
 ## Reading notes (gotchas surfaced in the panels too)
 
