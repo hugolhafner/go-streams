@@ -172,13 +172,14 @@ All metrics are registered under the `github.com/hugolhafner/go-streams` instrum
 | `stream.edge.records`            | Counter       | {message}   | Records flowing between nodes                      |
 | `stream.partitioned.queue.depth` | Gauge         | {message}   | Total records queued across partition workers      |
 | `stream.partitioned.paused.depth`| Gauge         | {message}   | Total records queued in paused partitions          |
+| `stream.partitioned.backpressure.events` | Counter | {event}   | Partition pause/resume events due to backpressure  |
 
 ### Metric Attributes
 
 | Attribute                            | Metrics                                                                                                         | Values                                         |
 |--------------------------------------|-----------------------------------------------------------------------------------------------------------------|------------------------------------------------|
-| `messaging.destination.name`         | consumer.messages, producer.messages, process.duration, produce.duration, errors, consumer.lag, process.retries | Topic name                                     |
-| `messaging.destination.partition.id` | consumer.messages, process.duration, consumer.lag                                                               | Partition ID                                   |
+| `messaging.destination.name`         | consumer.messages, producer.messages, process.duration, produce.duration, errors, consumer.lag, process.retries, backpressure.events | Topic name                                     |
+| `messaging.destination.partition.id` | consumer.messages, process.duration, consumer.lag, backpressure.events                                          | Partition ID                                   |
 | `stream.poll.status`                 | poll.duration                                                                                                   | `success`, `error`                             |
 | `stream.process.status`              | process.duration                                                                                                | `success`, `dropped`, `dlq`, `failed`, `error` |
 | `stream.produce.status`              | produce.duration                                                                                                | `success`, `error`                             |
@@ -191,6 +192,7 @@ All metrics are registered under the `github.com/hugolhafner/go-streams` instrum
 | `stream.node.type`                   | node.records, node.latency                                                                                      | `source`, `processor`, `sink`                  |
 | `stream.edge.source`                 | edge.records                                                                                                    | Source node name                               |
 | `stream.edge.target`                 | edge.records                                                                                                    | Target node name                               |
+| `stream.backpressure.event`          | backpressure.events                                                                                             | `paused`, `resumed`                            |
 
 ### Process Status Values
 
@@ -312,6 +314,14 @@ Alert when total queue depth exceeds a threshold:
 
 ```promql
 stream_partitioned_queue_depth > 1000
+```
+
+### Backpressure Events (Partitioned Runner)
+
+Alert when partitions are being paused frequently (more than 1 pause/sec averaged over 5 minutes), a sign that workers can't keep up with the poll rate:
+
+```promql
+sum(rate(stream_partitioned_backpressure_events_total{stream_backpressure_event="paused"}[5m])) > 1
 ```
 
 ### Rebalance Frequency
