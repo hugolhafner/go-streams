@@ -40,9 +40,6 @@ type PartitionedRunner struct {
 	pausedTPs      map[kafka.TopicPartition]struct{}
 	pendingMu      sync.Mutex
 
-	// resumeDepth is the worker queue depth a pausedTPs partition must drain to
-	// before it is resumed
-	resumeDepth int
 	// capacityCh is signaled by backpressured workers when their queue drains
 	// to resumeDepth, waking drainLoop without waiting for the next poll
 	capacityCh chan struct{}
@@ -86,7 +83,6 @@ func NewPartitionedRunner(opts ...PartitionedOption) Factory {
 			workers:        make(map[kafka.TopicPartition]*partitionWorker),
 			pendingRecords: make(map[kafka.TopicPartition][]kafka.ConsumerRecord),
 			pausedTPs:      make(map[kafka.TopicPartition]struct{}),
-			resumeDepth:    int(config.ResumeThreshold * float64(config.ChannelBufferSize)),
 			capacityCh:     make(chan struct{}, 1),
 			errCh:          make(chan error, 1),
 			logger:         l,
@@ -415,7 +411,7 @@ func (r *PartitionedRunner) OnAssigned(ctx context.Context, partitions []kafka.T
 			r.producer,
 			r.errorHandler,
 			r.config.ChannelBufferSize,
-			r.resumeDepth,
+			int(r.config.ResumeThreshold*float64(r.config.ChannelBufferSize)),
 			r.capacityCh,
 			r.config.WorkerShutdownTimeout,
 			r.errCh,
