@@ -107,7 +107,7 @@
       },
       "options": {
         "mode": "markdown",
-        "content": "## go-streams \u00b7 Fleet Overview\n**Question this dashboard answers:** *Is any go-streams application in trouble right now \u2014 and which one?*\n\nOrganised by the **Four Golden Signals** (Traffic, Errors, Latency, Saturation). Every graph is split by `job` only \u2014 once you know *which* application is unhealthy, drill down via the **go-streams dashboards** link (top right); your `job` selection and time range carry over.\n\n**Drill-down path:** Fleet Overview \u2192 *Application Drill-Down* (per topic) \u2192 *Topology Explorer* (per node/edge) \u2192 *Runner & Saturation* (per partition / backpressure).\n\nThresholds mirror the alerting examples in the go-streams observability docs (error ratio > 1 %, lag p99 > 30 s, queue depth > 1000, > 5 rebalances / 10 min). Refresh is 1 m to match the default OTel periodic export interval \u2014 faster refresh adds backend load without new data. Replace the `owner:go-streams` tag with your own team's tag."
+        "content": "## go-streams \u00b7 Fleet Overview\n**Question this dashboard answers:** *Is any go-streams application in trouble right now \u2014 and which one?*\n\nOrganised by the **Four Golden Signals** (Traffic, Errors, Latency, Saturation). Every graph is split by `job` only \u2014 once you know *which* application is unhealthy, drill down via the **go-streams dashboards** link (top right); your `job` selection and time range carry over.\n\n**Drill-down path:** Fleet Overview \u2192 *Application Drill-Down* (per topic) \u2192 *Topology Explorer* (per node/edge) \u2192 *Runner & Saturation* (per partition / backpressure).\n\nThresholds mirror the alerting examples in the go-streams observability docs (error ratio > 1 %, lag p99 > 30 s, queue depth > 1000, backpressure pauses > 1/s, > 5 rebalances / 10 min). Refresh is 1 m to match the default OTel periodic export interval \u2014 faster refresh adds backend load without new data. Replace the `owner:go-streams` tag with your own team's tag."
       },
       "transparent": true
     },
@@ -1070,7 +1070,7 @@
       },
       "gridPos": {
         "h": 8,
-        "w": 12,
+        "w": 8,
         "x": 0,
         "y": 40
       },
@@ -1145,8 +1145,8 @@
       },
       "gridPos": {
         "h": 8,
-        "w": 12,
-        "x": 12,
+        "w": 8,
+        "x": 8,
         "y": 40
       },
       "targets": [
@@ -1220,6 +1220,85 @@
     },
     {
       "id": 21,
+      "type": "timeseries",
+      "title": "Backpressure pauses by application",
+      "description": "Partitions paused per second because their worker queue filled (stream.partitioned.backpressure.events with event=paused). Only populated for the PartitionedRunner. Sustained values above 1/s mean workers can't keep up with the poll rate \u2014 drill into Runner & Saturation.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 40
+      },
+      "targets": [
+        {
+          "expr": "sum by (job) (rate(stream_partitioned_backpressure_events_total{job=~\"$job\", stream_backpressure_event=\"paused\"}[$__rate_interval]))",
+          "legendFormat": "{{job}}",
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "cps",
+          "min": 0,
+          "color": {
+            "mode": "palette-classic"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "pointSize": 4,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "axisPlacement": "auto",
+            "gradientMode": "none",
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 22,
       "type": "row",
       "title": "Stability",
       "collapsed": false,
@@ -1232,7 +1311,7 @@
       "panels": []
     },
     {
-      "id": 22,
+      "id": 23,
       "type": "timeseries",
       "title": "Active tasks by application",
       "description": "Currently active tasks / assigned partitions (stream.tasks.active). Sudden drops line up with rebalances or shutdowns.",
@@ -1307,7 +1386,7 @@
       }
     },
     {
-      "id": 23,
+      "id": 24,
       "type": "timeseries",
       "title": "Rebalance events by application",
       "description": "Rebalance events per interval (increase(stream.rebalance.count)). Spikes here explain gaps or duplicates elsewhere.",

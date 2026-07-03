@@ -1,7 +1,7 @@
 {
   "uid": "go-streams-runner",
   "title": "[go-streams] Runner & Saturation",
-  "description": "Deep dive into go-streams runner saturation: per-partition consumer lag, PartitionedRunner backpressure (queue/paused depth), poll-loop health, produce path and rebalance stability.",
+  "description": "Deep dive into go-streams runner saturation: per-partition consumer lag, PartitionedRunner backpressure (queue/paused depth, pause/resume events), poll-loop health, produce path and rebalance stability.",
   "tags": [
     "go-streams",
     "kafka",
@@ -153,7 +153,7 @@
       },
       "options": {
         "mode": "markdown",
-        "content": "## go-streams \u00b7 Runner & Saturation Deep Dive\n**Question this dashboard answers:** *Is the application keeping up \u2014 and if not, where is pressure building: input (lag), workers (queues/backpressure), poll loop, or sink (produce)?*\n\nThe **Backpressure** row only has data for the `PartitionedRunner`; the `SingleThreadedRunner` processes inline and has no queues. When a partition's worker channel fills, go-streams pauses that partition at the consumer \u2014 rising *paused depth* is the earliest backpressure signal.\n\nReading order: lag tells you *whether* you're behind; queue/paused depth tells you the workers are the bottleneck; poll panels rule the broker fetch path in or out; produce panels rule the sink out. Use the Topology Explorer to find *which node* makes workers slow."
+        "content": "## go-streams \u00b7 Runner & Saturation Deep Dive\n**Question this dashboard answers:** *Is the application keeping up \u2014 and if not, where is pressure building: input (lag), workers (queues/backpressure), poll loop, or sink (produce)?*\n\nThe **Backpressure** row only has data for the `PartitionedRunner`; the `SingleThreadedRunner` processes inline and has no queues. When a partition's worker channel fills, go-streams pauses that partition at the consumer \u2014 rising *paused depth* is the earliest backpressure signal. Pause/resume *events* show backpressure churn (how often partitions cycle); paused *depth* shows how much data is stuck behind it.\n\nReading order: lag tells you *whether* you're behind; queue/paused depth tells you the workers are the bottleneck; poll panels rule the broker fetch path in or out; produce panels rule the sink out. Use the Topology Explorer to find *which node* makes workers slow."
       },
       "transparent": true
     },
@@ -588,6 +588,154 @@
     },
     {
       "id": 9,
+      "type": "timeseries",
+      "title": "Backpressure pause/resume events",
+      "description": "rate(stream.partitioned.backpressure.events) by event type. A sustained pause rate means workers can't keep up with the poll rate \u2014 find the slow node in Topology Explorer. paused \u2248 resumed at high frequency is pause/resume thrash: lower WithResumeThreshold for more hysteresis (the partition then drains further before resuming). paused persistently above resumed means partitions are accumulating in the paused state. Docs suggest alerting above 1 pause/s.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 24
+      },
+      "targets": [
+        {
+          "expr": "sum by (stream_backpressure_event) (rate(stream_partitioned_backpressure_events_total{job=~\"$job\", messaging_destination_name=~\"$topic\"}[$__rate_interval]))",
+          "legendFormat": "{{stream_backpressure_event}}",
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "cps",
+          "min": 0,
+          "color": {
+            "mode": "palette-classic"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "pointSize": 4,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "axisPlacement": "auto",
+            "gradientMode": "none",
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 10,
+      "type": "bargauge",
+      "title": "Top partitions by pauses",
+      "description": "Partitions paused most often over the selected time range (stream.partitioned.backpressure.events with event=paused). One hot partition usually means key skew or one slow key; all partitions pausing means general under-capacity \u2014 same reading as the lag-by-partition panel above.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 24
+      },
+      "targets": [
+        {
+          "expr": "topk(10, sum by (messaging_destination_name, messaging_destination_partition_id) (increase(stream_partitioned_backpressure_events_total{job=~\"$job\", messaging_destination_name=~\"$topic\", messaging_destination_partition_id=~\"$partition\", stream_backpressure_event=\"paused\"}[$__range])))",
+          "legendFormat": "{{messaging_destination_name}}/p{{messaging_destination_partition_id}}",
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 10
+              },
+              {
+                "color": "red",
+                "value": 100
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "displayMode": "gradient",
+        "orientation": "horizontal",
+        "valueMode": "color",
+        "showUnfilled": true,
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      }
+    },
+    {
+      "id": 11,
       "type": "row",
       "title": "Poll loop health",
       "collapsed": false,
@@ -595,12 +743,12 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 24
+        "y": 32
       },
       "panels": []
     },
     {
-      "id": 10,
+      "id": 12,
       "type": "timeseries",
       "title": "Poll duration p95 by status",
       "description": "p95 time per Poll() call (stream.poll.duration) split by success/error status.",
@@ -612,7 +760,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 25
+        "y": 33
       },
       "targets": [
         {
@@ -675,7 +823,7 @@
       }
     },
     {
-      "id": 11,
+      "id": 13,
       "type": "timeseries",
       "title": "Poll error rate",
       "description": "Failed polls per second (stream.poll.duration count with status=error). The runner retries polls with the configured PollErrorBackoff.",
@@ -687,7 +835,7 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 25
+        "y": 33
       },
       "targets": [
         {
@@ -754,7 +902,7 @@
       }
     },
     {
-      "id": 12,
+      "id": 14,
       "type": "timeseries",
       "title": "Records per poll batch (p50 / p95)",
       "description": "stream.poll.records percentiles. Batches pinned at the fetch maximum while lag grows confirm input saturation; near-empty batches with lag mean the broker fetch path is the bottleneck.",
@@ -766,7 +914,7 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 25
+        "y": 33
       },
       "targets": [
         {
@@ -838,7 +986,7 @@
       }
     },
     {
-      "id": 13,
+      "id": 15,
       "type": "row",
       "title": "Sink health \u00b7 produce path",
       "collapsed": false,
@@ -846,12 +994,12 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 33
+        "y": 41
       },
       "panels": []
     },
     {
-      "id": 14,
+      "id": 16,
       "type": "timeseries",
       "title": "Produce duration p95 / p99",
       "description": "Time per Send() call (stream.produce.duration). Slow produce backs up the whole pipeline because processing waits on forwarding.",
@@ -863,7 +1011,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 34
+        "y": 42
       },
       "targets": [
         {
@@ -935,7 +1083,7 @@
       }
     },
     {
-      "id": 15,
+      "id": 17,
       "type": "timeseries",
       "title": "Produce error rate by topic",
       "description": "Failed Send() calls per second (stream.produce.duration count with status=error). These surface as production-phase errors in the error-handling system.",
@@ -947,7 +1095,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 34
+        "y": 42
       },
       "targets": [
         {
@@ -1014,7 +1162,7 @@
       }
     },
     {
-      "id": 16,
+      "id": 18,
       "type": "row",
       "title": "Stability",
       "collapsed": false,
@@ -1022,12 +1170,12 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 42
+        "y": 50
       },
       "panels": []
     },
     {
-      "id": 17,
+      "id": 19,
       "type": "timeseries",
       "title": "Active tasks by runner type",
       "description": "stream.tasks.active \u2014 partitions currently owned and processed, labelled single_threaded or partitioned.",
@@ -1039,7 +1187,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 43
+        "y": 51
       },
       "targets": [
         {
@@ -1102,7 +1250,7 @@
       }
     },
     {
-      "id": 18,
+      "id": 20,
       "type": "timeseries",
       "title": "Rebalance events by type",
       "description": "increase(stream.rebalance.count) split assigned/revoked. Every revoke drains workers (bounded by WorkerShutdownTimeout / DrainTimeout) \u2014 frequent rebalances directly cause queue-depth sawtooths above.",
@@ -1114,7 +1262,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 43
+        "y": 51
       },
       "targets": [
         {

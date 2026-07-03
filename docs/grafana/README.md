@@ -26,7 +26,8 @@ Signal → metric mapping used throughout:
 - **Latency** — `stream.process.duration`, `stream.node.latency` (exclusive self-time),
   `stream.produce.duration`, `stream.poll.duration`
 - **Saturation** — `stream.consumer.lag`, `stream.partitioned.queue.depth`,
-  `stream.partitioned.paused.depth`, `stream.tasks.active`, `stream.rebalance.count`
+  `stream.partitioned.paused.depth`, `stream.partitioned.backpressure.events`, `stream.tasks.active`,
+  `stream.rebalance.count`
 
 ## Import
 
@@ -57,10 +58,13 @@ Other conventions baked in:
 - Dual Y-axes are used only where units genuinely differ (e.g. *Consume rate vs error ratio* on the
   Overview: msg/s left, ratio right).
 - Stat thresholds mirror the alerting examples in `observability.md`: error ratio > 1 %, lag p99 > 30 s,
-  queue depth > 1000, retries > 5/s, > 5 rebalances / 10 min. Tune to your SLOs.
+  queue depth > 1000, backpressure pauses > 1/s, retries > 5/s, > 5 rebalances / 10 min. Tune to your SLOs.
 
 ## Ownership & housekeeping
 
+- The dashboard JSON files are **generated** by `generate_dashboards.py` — edit the script and
+  re-run it (`cd docs/grafana && uv run generate_dashboards.py`; stdlib-only, Python ≥ 3.12) rather
+  than editing the JSON by hand.
 - Keep the shared `go-streams` tag if you add dashboards to the set — that is what powers the
   cross-navigation dropdown.
 
@@ -74,6 +78,10 @@ Other conventions baked in:
   visible at a glance.
 - The **Backpressure** row on dashboard 4 only has data for the `PartitionedRunner`; the
   `SingleThreadedRunner` processes inline and exposes no queue metrics.
+- On the *Backpressure pause/resume events* panel, `paused` ≈ `resumed` at high frequency is
+  pause/resume thrash — lower `WithResumeThreshold` so a paused partition drains further before
+  resuming (more hysteresis). `paused` persistently above `resumed` means partitions are
+  accumulating in the paused state.
 - The Node Graph panel builds its `nodes`/`edges` frames from two instant table queries, following the
   field mappings in the go-streams observability docs (`id` = node name, `subtitle` = node type,
   `source`/`target` = edge endpoints, `mainstat` = throughput). The required field names are produced

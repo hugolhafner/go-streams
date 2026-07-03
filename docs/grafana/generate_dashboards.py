@@ -313,7 +313,7 @@ def build_overview():
         "**Drill-down path:** Fleet Overview → *Application Drill-Down* (per topic) → *Topology Explorer* (per node/edge) "
         "→ *Runner & Saturation* (per partition / backpressure).\n\n"
         "Thresholds mirror the alerting examples in the go-streams observability docs (error ratio > 1 %, lag p99 > 30 s, "
-        "queue depth > 1000, > 5 rebalances / 10 min). Refresh is 1 m to match the default OTel periodic export interval — "
+        "queue depth > 1000, backpressure pauses > 1/s, > 5 rebalances / 10 min). Refresh is 1 m to match the default OTel periodic export interval — "
         "faster refresh adds backend load without new data. Replace the `owner:go-streams` tag with your own team's tag."
     ), h=6))
 
@@ -394,14 +394,19 @@ def build_overview():
     panels.append(timeseries(g, "Consumer lag p99 by application",
         "99th percentile record age at consume time (stream.consumer.lag) per job. Sustained growth means the app is not keeping up with input.",
         [target(f'histogram_quantile(0.99, sum by (le, job) (rate(stream_consumer_lag_bucket{{{J}}}[$__rate_interval])))', "{{job}}")],
-        unit="s", x=0))
+        unit="s", x=0, w=8))
     panels.append(timeseries(g, "Partitioned-runner queue depth by application",
         "Records buffered in partition worker channels (stream.partitioned.queue.depth) and records held in paused partitions (stream.partitioned.paused.depth). Only populated for the PartitionedRunner. Docs suggest alerting above 1000.",
         [
             target(f'sum by (job) (stream_partitioned_queue_depth{{{J}}})', "{{job}} queued", refid="A"),
             target(f'sum by (job) (stream_partitioned_paused_depth{{{J}}})', "{{job}} paused", refid="B"),
         ],
-        unit="short", x=12))
+        unit="short", x=8, w=8))
+    panels.append(timeseries(g, "Backpressure pauses by application",
+        "Partitions paused per second because their worker queue filled (stream.partitioned.backpressure.events with event=paused). Only populated for the PartitionedRunner. Sustained values above 1/s mean workers can't keep up with the poll rate — drill into Runner & Saturation.",
+        [target(f'sum by (job) (rate(stream_partitioned_backpressure_events_total{{{J}, stream_backpressure_event="paused"}}[$__rate_interval]))', "{{job}}")],
+        unit="cps", x=16, w=8,
+        thresh=thresholds([GREEN, {"color": "red", "value": 1}])))
     g.y += 8
 
     # --- Stability
@@ -695,7 +700,8 @@ def build_runner():
         "input (lag), workers (queues/backpressure), poll loop, or sink (produce)?*\n\n"
         "The **Backpressure** row only has data for the `PartitionedRunner`; the `SingleThreadedRunner` processes inline "
         "and has no queues. When a partition's worker channel fills, go-streams pauses that partition at the consumer — "
-        "rising *paused depth* is the earliest backpressure signal.\n\n"
+        "rising *paused depth* is the earliest backpressure signal. Pause/resume *events* show backpressure churn "
+        "(how often partitions cycle); paused *depth* shows how much data is stuck behind it.\n\n"
         "Reading order: lag tells you *whether* you're behind; queue/paused depth tells you the workers are the bottleneck; "
         "poll panels rule the broker fetch path in or out; produce panels rule the sink out. Use the Topology Explorer to "
         "find *which node* makes workers slow."
@@ -734,6 +740,17 @@ def build_runner():
         "paused depth ÷ queue depth. Values approaching 1 mean most buffered records sit behind paused partitions — throughput is fully backpressure-limited.",
         [target(f'sum(stream_partitioned_paused_depth{{{J}}}) / sum(stream_partitioned_queue_depth{{{J}}})', "paused fraction")],
         unit="percentunit", x=12))
+    g.y += 8
+    panels.append(timeseries(g, "Backpressure pause/resume events",
+        "rate(stream.partitioned.backpressure.events) by event type. A sustained pause rate means workers can't keep up with the poll rate — find the slow node in Topology Explorer. paused ≈ resumed at high frequency is pause/resume thrash: lower WithResumeThreshold for more hysteresis (the partition then drains further before resuming). paused persistently above resumed means partitions are accumulating in the paused state. Docs suggest alerting above 1 pause/s.",
+        [target(f'sum by (stream_backpressure_event) (rate(stream_partitioned_backpressure_events_total{{{JT}}}[$__rate_interval]))', "{{stream_backpressure_event}}")],
+        unit="cps", x=0,
+        thresh=thresholds([GREEN, {"color": "red", "value": 1}])))
+    panels.append(bargauge(g, "Top partitions by pauses",
+        "Partitions paused most often over the selected time range (stream.partitioned.backpressure.events with event=paused). One hot partition usually means key skew or one slow key; all partitions pausing means general under-capacity — same reading as the lag-by-partition panel above.",
+        [target(f'topk(10, sum by (messaging_destination_name, messaging_destination_partition_id) (increase(stream_partitioned_backpressure_events_total{{{JT}, messaging_destination_partition_id=~"$partition", stream_backpressure_event="paused"}}[$__range])))', "{{messaging_destination_name}}/p{{messaging_destination_partition_id}}", instant=True)],
+        "short", x=12,
+        thresh=thresholds([GREEN, {"color": "yellow", "value": 10}, {"color": "red", "value": 100}])))
     g.y += 8
 
     # Poll health
@@ -800,7 +817,7 @@ def build_runner():
     return dashboard(
         "go-streams-runner",
         "[go-streams] Runner & Saturation",
-        "Deep dive into go-streams runner saturation: per-partition consumer lag, PartitionedRunner backpressure (queue/paused depth), poll-loop health, produce path and rebalance stability.",
+        "Deep dive into go-streams runner saturation: per-partition consumer lag, PartitionedRunner backpressure (queue/paused depth, pause/resume events), poll-loop health, produce path and rebalance stability.",
         panels, tpl,
     )
 
