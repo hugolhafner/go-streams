@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.0](https://github.com/hugolhafner/go-streams/compare/v0.4.0...v0.5.0) (2026-07-03)
+
+
+### Features
+
+* **runner:** backfill pressure handling ([#47](https://github.com/hugolhafner/go-streams/issues/47)) ([a725903](https://github.com/hugolhafner/go-streams/commit/a72590334461fdf4451c57bcec5df64ea48a9199))
+
 ## [0.4.0](https://github.com/hugolhafner/go-streams/compare/v0.3.0...v0.4.0) (2026-06-16)
 
 
