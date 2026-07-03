@@ -36,6 +36,7 @@ type Client struct {
 	assignedPartitions []kafka.TopicPartition
 
 	pausedPartitions map[kafka.TopicPartition]struct{}
+	pauseEvents      map[kafka.TopicPartition]int
 
 	maxPollRecords int
 	pollDelay      time.Duration
@@ -61,6 +62,7 @@ func NewClient(opts ...Option) *Client {
 		markedRecords:    make([]kafka.ConsumerRecord, 0),
 		markedOffsets:    make(map[kafka.TopicPartition]kafka.Offset),
 		pausedPartitions: make(map[kafka.TopicPartition]struct{}),
+		pauseEvents:      make(map[kafka.TopicPartition]int),
 		maxPollRecords:   10,
 		pollDelay:        0,
 	}
@@ -312,6 +314,7 @@ func (c *Client) PausePartitions(partitions ...kafka.TopicPartition) {
 
 	for _, tp := range partitions {
 		c.pausedPartitions[tp] = struct{}{}
+		c.pauseEvents[tp]++
 	}
 }
 
@@ -332,6 +335,14 @@ func (c *Client) IsPaused(tp kafka.TopicPartition) bool {
 
 	_, paused := c.pausedPartitions[tp]
 	return paused
+}
+
+// PauseEventCount returns how many times the given partition has been paused
+func (c *Client) PauseEventCount(tp kafka.TopicPartition) int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.pauseEvents[tp]
 }
 
 // AddRecords adds records to be returned by Poll for a specific topic-partition.
@@ -589,6 +600,7 @@ func (c *Client) Reset() {
 	c.markedOffsets = make(map[kafka.TopicPartition]kafka.Offset)
 	c.queuePositions = make(map[kafka.TopicPartition]int)
 	c.pausedPartitions = make(map[kafka.TopicPartition]struct{})
+	c.pauseEvents = make(map[kafka.TopicPartition]int)
 	c.closed = false
 }
 
@@ -604,6 +616,7 @@ func (c *Client) Clear() {
 	c.markedRecords = make([]kafka.ConsumerRecord, 0)
 	c.markedOffsets = make(map[kafka.TopicPartition]kafka.Offset)
 	c.pausedPartitions = make(map[kafka.TopicPartition]struct{})
+	c.pauseEvents = make(map[kafka.TopicPartition]int)
 	c.subscriptions = nil
 	c.assignedPartitions = nil
 	c.rebalanceCb = nil

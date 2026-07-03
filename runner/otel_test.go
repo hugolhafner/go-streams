@@ -383,6 +383,67 @@ func TestPartitionedRunner_OTel_QueueDepth(t *testing.T) {
 	assertMetricExists(t, metrics, "stream.partitioned.queue.depth")
 }
 
+func TestPartitionedRunner_OTel_BackpressureEvents(t *testing.T) {
+	_, metricReader, tel := setupOtelTest(t)
+
+	topo := createSlowTopology(5 * time.Millisecond)
+
+	client := mockkafka.NewClient(mockkafka.WithGroupID("test-group"), mockkafka.WithMaxPollRecords(10))
+	for i := 0; i < 5; i++ {
+		client.AddRecords(
+			"input", 0,
+			mockkafka.SimpleRecord("k", "v"),
+		)
+	}
+
+	factory, err := task.NewTopologyTaskFactory(topo, logger.NewNoopLogger(), task.WithTelemetry(tel))
+	require.NoError(t, err)
+
+	// buffer 1 so the poll batch overflows immediately and the partition
+	// goes through a full pause/resume cycle
+	runnerFactory := NewPartitionedRunner(WithChannelBufferSize(1))
+	r, err := runnerFactory(topo, factory, client, client, tel)
+	require.NoError(t, err)
+
+	pr := r.(*PartitionedRunner)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	done := make(chan error, 1)
+	go func() {
+		done <- r.Run(ctx)
+	}()
+
+	require.Eventually(
+		t, func() bool {
+			return len(client.ProducedRecords()) == 5 && len(pr.PausedPartitions()) == 0
+		}, 3*time.Second, 25*time.Millisecond, "records should process and the partition resume",
+	)
+
+	var rm metricdata.ResourceMetrics
+	err = metricReader.Collect(context.Background(), &rm)
+	require.NoError(t, err)
+
+	cancel()
+	<-done
+
+	m, ok := findMetric(rm, "stream.partitioned.backpressure.events")
+	require.True(t, ok, "backpressure events metric should be recorded")
+
+	sum, ok := m.Data.(metricdata.Sum[int64])
+	require.True(t, ok, "backpressure events should be a counter")
+
+	events := map[string]int64{}
+	for _, dp := range sum.DataPoints {
+		if v, found := dp.Attributes.Value(streamsotel.AttrBackpressureEvent); found {
+			events[v.AsString()] += dp.Value
+		}
+	}
+	require.Greater(t, events[streamsotel.BackpressureEventPaused], int64(0), "paused events should be recorded")
+	require.Greater(t, events[streamsotel.BackpressureEventResumed], int64(0), "resumed events should be recorded")
+}
+
 // TestSingleThreaded_OTel_ConsumerLag_ClampsNegative verifies a future record timestamp (producer
 // clock skew) does not produce a negative consumer-lag observation.
 func TestSingleThreaded_OTel_ConsumerLag_ClampsNegative(t *testing.T) {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/hugolhafner/go-streams/errorhandler"
@@ -35,6 +36,13 @@ type partitionWorker struct {
 	errCh        chan error
 	drainTimeout time.Duration
 
+	// while backpressured, the worker signals capacityCh (shared with the runner)
+	// once its queue drains to resumeDepth so the runner can flush pending records
+	// and resume the partition
+	resumeDepth   int
+	capacityCh    chan<- struct{}
+	backpressured atomic.Bool
+
 	mu      sync.RWMutex
 	stopped bool
 }
@@ -47,6 +55,8 @@ func newPartitionWorker(
 	producer kafka.Producer,
 	errorHandler errorhandler.Handler,
 	bufferSize int,
+	resumeDepth int,
+	capacityCh chan<- struct{},
 	drainTimeout time.Duration,
 	errCh chan error,
 	l logger.Logger,
@@ -69,6 +79,8 @@ func newPartitionWorker(
 		stopCh:       make(chan struct{}),
 		errCh:        errCh,
 		drainTimeout: drainTimeout,
+		resumeDepth:  resumeDepth,
+		capacityCh:   capacityCh,
 	}
 }
 
@@ -101,6 +113,9 @@ func (w *partitionWorker) run(ctx context.Context) {
 				w.logger.Debug("Record channel closed")
 				return
 			}
+
+			// signal before processing so runner can refill during processing
+			w.notifyCapacity()
 
 			if err := w.processRecord(r.ctx, r.record); err != nil {
 				w.logger.Error("Error processing record", "error", err, "offset", r.record.Offset)
@@ -227,4 +242,27 @@ func (w *partitionWorker) Partition() kafka.TopicPartition {
 // QueueDepth returns the number of records currently queued for processing
 func (w *partitionWorker) QueueDepth() int {
 	return len(w.recordCh)
+}
+
+// setBackpressured marks whether this worker's partition is paused due to backpressure
+func (w *partitionWorker) setBackpressured(v bool) {
+	w.backpressured.Store(v)
+}
+
+// atResumeWatermark reports whether the queue has drained to or below the resume watermark
+func (w *partitionWorker) atResumeWatermark() bool {
+	return w.QueueDepth() <= w.resumeDepth
+}
+
+// notifyCapacity signals the runner that the worker has drained
+// below the resume watermark
+func (w *partitionWorker) notifyCapacity() {
+	if w.capacityCh == nil || !w.backpressured.Load() || !w.atResumeWatermark() {
+		return
+	}
+
+	select {
+	case w.capacityCh <- struct{}{}:
+	default:
+	}
 }

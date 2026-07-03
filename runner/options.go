@@ -62,6 +62,20 @@ func WithChannelBufferSize(size int) channelBufferSizeOption {
 	return channelBufferSizeOption(size)
 }
 
+type resumeThresholdOption float64
+
+func (o resumeThresholdOption) applyPartitioned(c *PartitionedConfig) {
+	if o > 0 && o <= 1 {
+		c.ResumeThreshold = float64(o)
+	}
+}
+
+// WithResumeThreshold sets the fraction of the channel buffer that a paused
+// partition's worker queue must drain to before the partition is resumed
+func WithResumeThreshold(fraction float64) resumeThresholdOption {
+	return resumeThresholdOption(fraction)
+}
+
 type workerShutdownTimeoutOption time.Duration
 
 func (o workerShutdownTimeoutOption) applyPartitioned(c *PartitionedConfig) {

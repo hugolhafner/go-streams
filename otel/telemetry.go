@@ -19,6 +19,7 @@ const (
 	unitError     = "{error}"
 	unitTask      = "{task}"
 	unitRebalance = "{rebalance}"
+	unitEvent     = "{event}"
 )
 
 // Telemetry holds all OpenTelemetry instruments for the go-streams library
@@ -51,6 +52,7 @@ type Telemetry struct {
 	RebalanceCount         metric.Int64Counter
 	PartitionedQueueDepth  metric.Int64ObservableGauge
 	PartitionedPausedDepth metric.Int64ObservableGauge
+	BackpressureEvents     metric.Int64Counter
 
 	// Service graph metrics
 	NodeRecords metric.Int64Counter
@@ -233,6 +235,15 @@ func NewTelemetry(tp trace.TracerProvider, mp metric.MeterProvider, prop propaga
 		return nil, err
 	}
 
+	backpressureEvents, err := meter.Int64Counter(
+		"stream.partitioned.backpressure.events",
+		metric.WithDescription("Partition pause/resume events due to backpressure"),
+		metric.WithUnit(unitEvent),
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	return &Telemetry{
 		Tracer:                 tracer,
 		Propagator:             prop,
@@ -250,6 +261,7 @@ func NewTelemetry(tp trace.TracerProvider, mp metric.MeterProvider, prop propaga
 		RebalanceCount:         rebalanceCount,
 		PartitionedQueueDepth:  partitionQueueDepth,
 		PartitionedPausedDepth: partitionPausedDepth,
+		BackpressureEvents:     backpressureEvents,
 		NodeRecords:            nodeRecords,
 		NodeLatency:            nodeLatency,
 		EdgeRecords:            edgeRecords,

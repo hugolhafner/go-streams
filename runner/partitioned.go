@@ -34,11 +34,15 @@ type PartitionedRunner struct {
 	workers map[kafka.TopicPartition]*partitionWorker
 	mu      sync.RWMutex
 
-	// pending holds records that couldn't be dispatched because the worker channel was full
+	// pendingRecords holds records that couldn't be dispatched because the worker channel was full
 	// processed FIFO before new records from Poll
-	pending   map[kafka.TopicPartition][]kafka.ConsumerRecord
-	paused    map[kafka.TopicPartition]struct{}
-	pendingMu sync.Mutex
+	pendingRecords map[kafka.TopicPartition][]kafka.ConsumerRecord
+	pausedTPs      map[kafka.TopicPartition]struct{}
+	pendingMu      sync.Mutex
+
+	// capacityCh is signaled by backpressured workers when their queue drains
+	// to resumeDepth, waking drainLoop without waiting for the next poll
+	capacityCh chan struct{}
 
 	errCh chan error
 
@@ -75,13 +79,14 @@ func NewPartitionedRunner(opts ...PartitionedOption) Factory {
 				config.ErrorHandler, config.SerdeErrorHandler,
 				config.ProcessingErrorHandler, config.ProductionErrorHandler,
 			),
-			config:    config,
-			workers:   make(map[kafka.TopicPartition]*partitionWorker),
-			pending:   make(map[kafka.TopicPartition][]kafka.ConsumerRecord),
-			paused:    make(map[kafka.TopicPartition]struct{}),
-			errCh:     make(chan error, 1),
-			logger:    l,
-			telemetry: telemetry,
+			config:         config,
+			workers:        make(map[kafka.TopicPartition]*partitionWorker),
+			pendingRecords: make(map[kafka.TopicPartition][]kafka.ConsumerRecord),
+			pausedTPs:      make(map[kafka.TopicPartition]struct{}),
+			capacityCh:     make(chan struct{}, 1),
+			errCh:          make(chan error, 1),
+			logger:         l,
+			telemetry:      telemetry,
 		}, nil
 	}
 }
@@ -137,6 +142,8 @@ func (r *PartitionedRunner) Run(ctx context.Context) error {
 	if err := r.consumer.Subscribe(topics, r); err != nil {
 		return fmt.Errorf("failed to subscribe to topics: %w", err)
 	}
+
+	go r.drainLoop(r.runCtx)
 
 	r.logger.Info("Partitioned runner started", "topics", topics)
 
@@ -235,8 +242,8 @@ func (r *PartitionedRunner) doPoll(ctx context.Context) error {
 
 		// add to pending before dispatching to make sure ordering stays guaranteed
 		r.pendingMu.Lock()
-		if _, hasPending := r.paused[tp]; hasPending {
-			r.pending[tp] = append(r.pending[tp], record)
+		if _, hasPending := r.pausedTPs[tp]; hasPending {
+			r.pendingRecords[tp] = append(r.pendingRecords[tp], record)
 			r.pendingMu.Unlock()
 			continue
 		}
@@ -247,11 +254,18 @@ func (r *PartitionedRunner) doPoll(ctx context.Context) error {
 		}
 
 		r.pendingMu.Lock()
-		r.pending[tp] = append(r.pending[tp], record)
-		r.paused[tp] = struct{}{}
+		r.pendingRecords[tp] = append(r.pendingRecords[tp], record)
+		r.pausedTPs[tp] = struct{}{}
+		worker.setBackpressured(true)
+		r.consumer.PausePartitions(tp)
 		r.pendingMu.Unlock()
 
-		r.consumer.PausePartitions(tp)
+		// re-check capacity in case the worker drained to the watermark before
+		// the backpressured flag was set (it won't signal again until its next
+		// dequeue)
+		worker.notifyCapacity()
+
+		r.recordBackpressureEvent(ctx, tp, streamsotel.BackpressureEventPaused)
 		r.logger.Warn(
 			"Paused partition due to backpressure",
 			"topic", tp.Topic,
@@ -262,23 +276,38 @@ func (r *PartitionedRunner) doPoll(ctx context.Context) error {
 	return nil
 }
 
-// dispatchPending flushes buffered records for paused partitions via TrySubmit
-// Partitions that are fully drained are resumed.
+// dispatchPending flushes buffered records for pausedTPs partitions via TrySubmit.
+// A partition is resumed once its pendingRecords records are fully flushed AND its
+// worker queue has drained to the resume watermark
 func (r *PartitionedRunner) dispatchPending(ctx context.Context) {
+	for _, tp := range r.flushPending(ctx) {
+		r.recordBackpressureEvent(ctx, tp, streamsotel.BackpressureEventResumed)
+		r.logger.Info(
+			"Resumed partition after backpressure drain",
+			"topic", tp.Topic,
+			"partition", tp.Partition,
+		)
+	}
+}
+
+// flushPending dispatches buffered records and resumes drained partitions,
+// returning the partitions it resumed
+func (r *PartitionedRunner) flushPending(ctx context.Context) []kafka.TopicPartition {
 	r.pendingMu.Lock()
 	defer r.pendingMu.Unlock()
 
-	var toResume []kafka.TopicPartition
+	var resumed []kafka.TopicPartition
 
-	for tp, records := range r.pending {
+	for tp := range r.pausedTPs {
 		worker, ok := r.getWorker(tp)
 		if !ok {
 			// partition removed, drop pending records
-			delete(r.pending, tp)
-			delete(r.paused, tp)
+			delete(r.pendingRecords, tp)
+			delete(r.pausedTPs, tp)
 			continue
 		}
 
+		records := r.pendingRecords[tp]
 		dispatched := 0
 		for _, rec := range records {
 			if !worker.TrySubmit(ctx, rec) {
@@ -287,25 +316,49 @@ func (r *PartitionedRunner) dispatchPending(ctx context.Context) {
 			dispatched++
 		}
 
-		if dispatched == len(records) {
-			delete(r.pending, tp)
-			delete(r.paused, tp)
-			toResume = append(toResume, tp)
-		} else {
-			r.pending[tp] = records[dispatched:]
+		if dispatched < len(records) {
+			r.pendingRecords[tp] = records[dispatched:]
+			continue
 		}
+		delete(r.pendingRecords, tp)
+
+		// while paused the worker only consumes from its queue, so a depth at
+		// or below the watermark here cannot grow before the resume applies
+		if !worker.atResumeWatermark() {
+			continue
+		}
+
+		delete(r.pausedTPs, tp)
+		worker.setBackpressured(false)
+		r.consumer.ResumePartitions(tp)
+		resumed = append(resumed, tp)
 	}
 
-	if len(toResume) > 0 {
-		r.consumer.ResumePartitions(toResume...)
-		for _, tp := range toResume {
-			r.logger.Info(
-				"Resumed partition after backpressure drain",
-				"topic", tp.Topic,
-				"partition", tp.Partition,
-			)
+	return resumed
+}
+
+// drainLoop dispatches pendingRecords records when a backpressured worker
+// signals capacity, decoupling from the poll loop to allow for delay free
+// catching up
+func (r *PartitionedRunner) drainLoop(ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-r.capacityCh:
+			r.dispatchPending(ctx)
 		}
 	}
+}
+
+func (r *PartitionedRunner) recordBackpressureEvent(ctx context.Context, tp kafka.TopicPartition, event string) {
+	r.telemetry.BackpressureEvents.Add(
+		ctx, 1, metric.WithAttributes(
+			semconv.MessagingDestinationName(tp.Topic),
+			semconv.MessagingDestinationPartitionID(strconv.FormatInt(int64(tp.Partition), 10)),
+			streamsotel.AttrBackpressureEvent.String(event),
+		),
+	)
 }
 
 func (r *PartitionedRunner) getWorker(tp kafka.TopicPartition) (*partitionWorker, bool) {
@@ -358,6 +411,8 @@ func (r *PartitionedRunner) OnAssigned(ctx context.Context, partitions []kafka.T
 			r.producer,
 			r.errorHandler,
 			r.config.ChannelBufferSize,
+			int(r.config.ResumeThreshold*float64(r.config.ChannelBufferSize)),
+			r.capacityCh,
 			r.config.WorkerShutdownTimeout,
 			r.errCh,
 			r.logger,
@@ -381,8 +436,8 @@ func (r *PartitionedRunner) OnRevoked(ctx context.Context, partitions []kafka.To
 
 	r.pendingMu.Lock()
 	for _, tp := range partitions {
-		delete(r.pending, tp)
-		delete(r.paused, tp)
+		delete(r.pendingRecords, tp)
+		delete(r.pausedTPs, tp)
 	}
 	r.pendingMu.Unlock()
 
@@ -452,8 +507,8 @@ func (r *PartitionedRunner) shutdown() {
 	r.logger.Info("Shutting down partitioned runner")
 
 	r.pendingMu.Lock()
-	r.pending = make(map[kafka.TopicPartition][]kafka.ConsumerRecord)
-	r.paused = make(map[kafka.TopicPartition]struct{})
+	r.pendingRecords = make(map[kafka.TopicPartition][]kafka.ConsumerRecord)
+	r.pausedTPs = make(map[kafka.TopicPartition]struct{})
 	r.pendingMu.Unlock()
 
 	r.mu.RLock()
@@ -536,8 +591,8 @@ func (r *PartitionedRunner) PendingDepths() map[kafka.TopicPartition]int {
 	r.pendingMu.Lock()
 	defer r.pendingMu.Unlock()
 
-	depths := make(map[kafka.TopicPartition]int, len(r.pending))
-	for tp, records := range r.pending {
+	depths := make(map[kafka.TopicPartition]int, len(r.pendingRecords))
+	for tp, records := range r.pendingRecords {
 		depths[tp] = len(records)
 	}
 	return depths
@@ -548,8 +603,8 @@ func (r *PartitionedRunner) PausedPartitions() []kafka.TopicPartition {
 	r.pendingMu.Lock()
 	defer r.pendingMu.Unlock()
 
-	result := make([]kafka.TopicPartition, 0, len(r.paused))
-	for tp := range r.paused {
+	result := make([]kafka.TopicPartition, 0, len(r.pausedTPs))
+	for tp := range r.pausedTPs {
 		result = append(result, tp)
 	}
 	return result
