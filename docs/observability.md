@@ -280,6 +280,11 @@ You can also use `stream.node.latency` for the node `secondarystat` to show aver
 
 ## Alerting Examples
 
+> **Tip:** A complete, ready-to-load rule set built from these examples (plus traffic and latency
+> coverage, two-tier severities and per-application grouping) ships in
+> [`docs/prometheus/rules/go-streams-alerts.yaml`](prometheus/rules/go-streams-alerts.yaml) — see
+> [its README](prometheus/README.md) for the catalog and how to regenerate or tune it.
+
 ### Error Rate
 
 Alert when the error rate exceeds 1% of consumed messages over 5 minutes:
