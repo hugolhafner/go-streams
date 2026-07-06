@@ -7,7 +7,7 @@ require (
 	github.com/stretchr/testify v1.11.1
 	github.com/testcontainers/testcontainers-go/modules/redpanda v0.40.0
 	github.com/twmb/franz-go v1.21.5
-	github.com/twmb/franz-go/pkg/kadm v1.17.2
+	github.com/twmb/franz-go/pkg/kadm v1.18.0
 	go.opentelemetry.io/otel v1.44.0
 	go.opentelemetry.io/otel/metric v1.44.0
 	go.opentelemetry.io/otel/sdk v1.44.0
