@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.1](https://github.com/hugolhafner/go-streams/compare/v0.5.0...v0.5.1) (2026-07-09)
+
+
+### Bug Fixes
+
+* **runner:** fatal error handling ([#56](https://github.com/hugolhafner/go-streams/issues/56)) ([4973f8f](https://github.com/hugolhafner/go-streams/commit/4973f8ffbff45aae99ed6283f6f45f1e2c245dab))
+
 ## [0.5.0](https://github.com/hugolhafner/go-streams/compare/v0.4.0...v0.5.0) (2026-07-03)
 
 
