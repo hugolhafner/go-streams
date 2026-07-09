@@ -110,7 +110,7 @@ func (r *SingleThreaded) doPoll(ctx context.Context) error {
 				streamsotel.AttrPollStatus.String(streamsotel.StatusError),
 			),
 		)
-		return fmt.Errorf("failed to poll: %w", err)
+		return fmt.Errorf("%w: %w", ErrPoll, err)
 	}
 
 	tel.PollDuration.Record(
@@ -147,7 +147,7 @@ func (r *SingleThreaded) doPoll(ctx context.Context) error {
 		)
 
 		if err := r.processRecord(ctx, record); err != nil {
-			return fmt.Errorf("fatal error processing record: %w", err)
+			return err
 		}
 	}
 
@@ -243,29 +243,5 @@ func (r *SingleThreaded) Run(ctx context.Context) error {
 
 	defer r.shutdown()
 
-	var errAttempts uint = 0
-	for {
-		select {
-		case err := <-r.errChan:
-			r.logger.Error("Fatal error received in Run()", "error", err)
-			return err
-
-		case <-ctx.Done():
-			r.logger.Info("Context cancelled, shutting down")
-			return nil
-
-		default:
-			if err := r.doPoll(ctx); err != nil {
-				r.logger.Warn("Poll error", "error", err)
-				select {
-				case <-ctx.Done():
-					return nil
-				case <-time.After(r.config.PollErrorBackoff.Next(errAttempts)):
-				}
-				errAttempts++
-			} else {
-				errAttempts = 0
-			}
-		}
-	}
+	return runPollLoop(ctx, r.logger, r.errChan, r.config.PollErrorBackoff, r.doPoll)
 }
