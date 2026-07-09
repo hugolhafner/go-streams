@@ -251,6 +251,149 @@ func consumeAsMap(
 	return result
 }
 
+type consumedRecordFull struct {
+	Key     string
+	Value   string
+	Headers []kgo.RecordHeader
+}
+
+// consumeRecordsFull is consumeRecords but also captures record headers, for
+// asserting DLQ metadata.
+func consumeRecordsFull(
+	t *testing.T, broker, topic, groupID string, expectedCount int, timeout time.Duration,
+) []consumedRecordFull {
+	t.Helper()
+
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	client, err := kgo.NewClient(
+		kgo.SeedBrokers(broker),
+		kgo.ConsumerGroup(groupID),
+		kgo.ConsumeTopics(topic),
+		kgo.ConsumeResetOffset(kgo.NewOffset().AtStart()),
+	)
+	require.NoError(t, err)
+	defer client.Close()
+
+	var records []consumedRecordFull
+	for len(records) < expectedCount {
+		fetches := client.PollFetches(ctx)
+		if errs := fetches.Errors(); len(errs) > 0 {
+			for _, err := range errs {
+				if errors.Is(err.Err, context.DeadlineExceeded) {
+					t.Fatalf("timeout waiting for records: got %d, expected %d", len(records), expectedCount)
+				}
+			}
+		}
+
+		fetches.EachRecord(
+			func(r *kgo.Record) {
+				records = append(
+					records, consumedRecordFull{
+						Key:     string(r.Key),
+						Value:   string(r.Value),
+						Headers: r.Headers,
+					},
+				)
+			},
+		)
+	}
+
+	return records
+}
+
+// headerValue returns the value of the first header matching key.
+func headerValue(headers []kgo.RecordHeader, key string) (string, bool) {
+	for _, h := range headers {
+		if h.Key == key {
+			return string(h.Value), true
+		}
+	}
+	return "", false
+}
+
+// consumeUntilKeys consumes from a topic until every expected key has been
+// seen at least once, returning everything consumed. Use when duplicates are
+// permitted (at-least-once assertions), where a fixed expected count could
+// return before slow keys arrive.
+func consumeUntilKeys(
+	t *testing.T, broker, topic, groupID string, keys map[string]bool, timeout time.Duration,
+) []consumedRecord {
+	t.Helper()
+
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	client, err := kgo.NewClient(
+		kgo.SeedBrokers(broker),
+		kgo.ConsumerGroup(groupID),
+		kgo.ConsumeTopics(topic),
+		kgo.ConsumeResetOffset(kgo.NewOffset().AtStart()),
+	)
+	require.NoError(t, err)
+	defer client.Close()
+
+	remaining := make(map[string]bool, len(keys))
+	for k := range keys {
+		remaining[k] = true
+	}
+
+	var records []consumedRecord
+	for len(remaining) > 0 {
+		fetches := client.PollFetches(ctx)
+		if errs := fetches.Errors(); len(errs) > 0 {
+			for _, err := range errs {
+				if errors.Is(err.Err, context.DeadlineExceeded) {
+					t.Fatalf("timeout waiting for keys: %d of %d still missing", len(remaining), len(keys))
+				}
+			}
+		}
+
+		fetches.EachRecord(
+			func(r *kgo.Record) {
+				records = append(
+					records, consumedRecord{
+						Key:   string(r.Key),
+						Value: string(r.Value),
+					},
+				)
+				delete(remaining, string(r.Key))
+			},
+		)
+	}
+
+	return records
+}
+
+// getEndOffsetSum returns the sum of a topic's end offsets across partitions —
+// a cheap way to watch output progress without consuming.
+func getEndOffsetSum(t *testing.T, broker, topic string) int64 {
+	t.Helper()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	client, err := kgo.NewClient(kgo.SeedBrokers(broker))
+	require.NoError(t, err)
+	defer client.Close()
+
+	admin := kadm.NewClient(client)
+
+	offsets, err := admin.ListEndOffsets(ctx, topic)
+	if err != nil {
+		return 0
+	}
+
+	var sum int64
+	offsets.Each(
+		func(o kadm.ListedOffset) {
+			sum += o.Offset
+		},
+	)
+	return sum
+}
+
 func eventually(t *testing.T, condition func() bool, timeout time.Duration, msg string) {
 	t.Helper()
 

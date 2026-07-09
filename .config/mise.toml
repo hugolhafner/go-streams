@@ -18,7 +18,7 @@ run = "go test -v -race -tags=unit -run='TestChaos_' ./runner/..."
 run = "go test -v -tags=integration ./..."
 
 [tasks.test-e2e]
-run = "go test -v -tags=e2e ./e2e/..."
+run = "go test -v -tags=e2e -skip='TestE2E_Chaos_' ./e2e/..."
 
 [tasks.test-fuzz]
 run = "go test -run='^$' -fuzz='.' -fuzztime=30s ./..."
