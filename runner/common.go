@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/hugolhafner/dskit/backoff"
 	"github.com/hugolhafner/go-streams/errorhandler"
 	"github.com/hugolhafner/go-streams/kafka"
 	"github.com/hugolhafner/go-streams/logger"
@@ -18,6 +19,11 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
+// ErrPoll marks consumer poll failures; runners retry these with backoff
+// indefinitely instead of stopping, whether or not the underlying cause is
+// transient.
+var ErrPoll = errors.New("failed to poll")
+
 // emitError emits an error to the provided channel without blocking
 func emitError(errCh chan<- error, l logger.Logger, err error) {
 	select {
@@ -27,16 +33,60 @@ func emitError(errCh chan<- error, l logger.Logger, err error) {
 	}
 }
 
-func sendToDLQ(
-	ctx context.Context, producer kafka.Producer, record kafka.ConsumerRecord, ec errorhandler.ErrorContext,
-	topic string,
+func runPollLoop(
+	ctx context.Context, l logger.Logger, errCh <-chan error,
+	bo backoff.Backoff, doPoll func(context.Context) error,
 ) error {
-	key := make([]byte, len(record.Key))
+	var attempts uint
+	for {
+		select {
+		case err := <-errCh:
+			l.Error("Fatal error received in Run()", "error", err)
+			return err
+
+		case <-ctx.Done():
+			l.Info("Context cancelled, shutting down")
+			return nil
+
+		default:
+			err := doPoll(ctx)
+			if err == nil {
+				attempts = 0
+				continue
+			}
+
+			if ctx.Err() != nil {
+				l.Info("Context cancelled, shutting down")
+				return nil
+			}
+
+			if !errors.Is(err, ErrPoll) {
+				l.Error("Fatal processing error, stopping runner", "error", err)
+				return err
+			}
+
+			l.Warn("Poll error", "error", err)
+			select {
+			case <-ctx.Done():
+				return nil
+			case <-time.After(bo.Next(attempts)):
+			}
+			attempts++
+		}
+	}
+}
+
+// buildDLQRecord copies record's key/value/headers (decoupling the produce
+// from the consumer's buffers) and appends the error-metadata headers.
+func buildDLQRecord(
+	record kafka.ConsumerRecord, ec errorhandler.ErrorContext,
+) (key, value []byte, headers []kafka.Header) {
+	key = make([]byte, len(record.Key))
 	copy(key, record.Key)
-	value := make([]byte, len(record.Value))
+	value = make([]byte, len(record.Value))
 	copy(value, record.Value)
 
-	headers := make([]kafka.Header, len(record.Headers), len(record.Headers)+10)
+	headers = make([]kafka.Header, len(record.Headers), len(record.Headers)+10)
 	for i, h := range record.Headers {
 		vCopy := make([]byte, len(h.Value))
 		copy(vCopy, h.Value)
@@ -60,6 +110,30 @@ func sendToDLQ(
 		headers = append(headers, kafka.Header{Key: "x-error-node", Value: []byte(ec.NodeName)})
 	}
 
+	return key, value, headers
+}
+
+func recordErrorAction(
+	ctx context.Context, tel *streamsotel.Telemetry, ec errorhandler.ErrorContext, action errorhandler.Action,
+) {
+	tel.Errors.Add(
+		ctx, 1, metric.WithAttributes(
+			semconv.MessagingDestinationName(ec.Record.Topic),
+			streamsotel.AttrErrorNode.String(ec.NodeName),
+			streamsotel.AttrErrorPhase.String(ec.Phase.String()),
+			streamsotel.AttrErrorAction.String(action.Type().String()),
+		),
+	)
+}
+
+func sendToDLQ(
+	ctx context.Context,
+	producer kafka.Producer,
+	rec kafka.ConsumerRecord,
+	ec errorhandler.ErrorContext,
+	topic string,
+) error {
+	key, value, headers := buildDLQRecord(rec, ec)
 	return producer.Send(ctx, topic, key, value, headers)
 }
 
@@ -158,15 +232,7 @@ func processRecordWithRetry(
 		span.RecordError(err)
 
 		action := handler.Handle(ctx, ec)
-
-		tel.Errors.Add(
-			ctx, 1, metric.WithAttributes(
-				semconv.MessagingDestinationName(rec.Topic),
-				streamsotel.AttrErrorNode.String(ec.NodeName),
-				streamsotel.AttrErrorPhase.String(ec.Phase.String()),
-				streamsotel.AttrErrorAction.String(action.Type().String()),
-			),
-		)
+		recordErrorAction(ctx, tel, ec, action)
 
 		switch action.Type() {
 		case errorhandler.ActionTypeFail:
