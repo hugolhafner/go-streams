@@ -65,6 +65,21 @@ jobs:
       - name: E2E Test with Go
         run: mise run test-e2e
 
+  e2e-chaos:
+    name: E2E Chaos Tests
+    needs: [ setup ]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Setup and Cache
+        uses: ./.github/actions/setup
+        with:
+          docker: 'true'
+
+      - name: E2E Chaos Test with Go
+        run: mise run test-e2e-chaos
+
   lint:
     name: Lint
     needs: [setup]
@@ -80,7 +95,7 @@ jobs:
 
   release:
     name: Release
-    needs: [sonarqube, test, lint, e2e]
+    needs: [sonarqube, test, lint, e2e, e2e-chaos]
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     permissions:
